@@ -1,0 +1,17 @@
+# Not yet installed anywhere — Exec and Icon are placeholders. To use: point
+# Exec at a real daeplex-gui install location (or put it on PATH), point
+# Icon at this checkout's assets/brand/icon-256.png (or an installed copy),
+# then copy this file to ~/.local/share/applications/ (or
+# /usr/share/applications/ for a system-wide install). StartupWMClass
+# matches the window class Gio already derives from the binary name
+# (confirmed live via `hyprctl clients`) — no code change needed for this
+# to take effect once installed.
+[Desktop Entry]
+Type=Application
+Name=DaePlex
+Comment=A fast, modal, dual GUI/TUI code editor
+Exec=daeplex-gui %f
+Icon=/absolute/path/to/assets/brand/icon-256.png
+StartupWMClass=daeplex-gui
+Categories=Development;TextEditor;
+Terminal=false

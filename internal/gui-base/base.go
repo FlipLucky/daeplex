@@ -78,7 +78,7 @@ func CreateApp(ws *workspace.Workspace) GuiApp {
 func (g *GioApp) Run() {
 	go func() {
 		window := new(app.Window)
-		window.Option(app.Title("GUI Text Editor"))
+		window.Option(app.Title("DaePlex GUI"))
 
 		// Monitor editor updates and trigger frame invalidations.
 		// Current().ChangeChan() is re-fetched on every loop pass (inside
@@ -129,11 +129,16 @@ func (g *GioApp) Run() {
 				}
 
 				if g.showSplash {
-					layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							return renderSplash(gtx, g.theme)
-						}),
-					)
+					// No layout.Stack wrapper needed (unlike the non-splash
+					// branch below, which overlays a hover popup on top of
+					// the body) — one Expanded child with no Stacked sibling
+					// would reset Constraints.Min to {0,0} (layout.Expanded
+					// sizes Min to the largest Stacked sibling, and there is
+					// none here), discarding the root gtx's real Min==Max==
+					// window-size constraints that renderSplash's
+					// layout.Center.Layout needs to actually expand and
+					// center rather than sit at its natural top-left size.
+					renderSplash(gtx, g.theme)
 				} else {
 					cursor := cur.GetCursor()
 					lineHeight := lineHeightPx(gtx, g.theme)
