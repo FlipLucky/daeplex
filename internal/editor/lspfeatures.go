@@ -66,6 +66,13 @@ func (e *Editor) requestHoverLocked() {
 	}
 	pos := lspclient.OffsetToPosition(source, at)
 
+	// Captured now, at request time, not read as ed.cursor when the
+	// response arrives — once splits exist, e.cursor may have been
+	// hot-swapped to a different pane's cursor by then (see
+	// DESIGN_SPLITS.md's async-correctness audit). The result always
+	// lands on the pane that actually asked for it.
+	targetCursor := e.cursor
+
 	e.runAsync(func() asyncApply {
 		result, ok, err := server.Hover(uri, pos)
 		if err != nil {
@@ -79,7 +86,7 @@ func (e *Editor) requestHoverLocked() {
 			if !ed.lspService.IsCurrent(server) {
 				return // a different buffer/server is active now — stale
 			}
-			ed.cursor.Hover = HoverState{Active: text != "", Text: text}
+			targetCursor.Hover = HoverState{Active: text != "", Text: text}
 			ed.notifyChange(piecetable.Edit{})
 		}
 	})
@@ -129,6 +136,9 @@ func (e *Editor) maybeTriggerSignatureHelp(r rune) {
 
 	e.mu.Lock()
 	at := e.cursor.ByteOffset
+	// Captured now, not read as ed.cursor at apply time — see
+	// requestHoverLocked's comment on the same pattern.
+	targetCursor := e.cursor
 	source := []byte(e.table.CombinePieces())
 	e.mu.Unlock()
 	pos := lspclient.OffsetToPosition(source, at)
@@ -143,7 +153,7 @@ func (e *Editor) maybeTriggerSignatureHelp(r rune) {
 			if !ed.lspService.IsCurrent(server) {
 				return // a different buffer/server is active now — stale
 			}
-			ed.cursor.SignatureHelp = HoverState{Active: text != "", Text: text}
+			targetCursor.SignatureHelp = HoverState{Active: text != "", Text: text}
 			ed.notifyChange(piecetable.Edit{})
 		}
 	})
@@ -175,6 +185,11 @@ func (e *Editor) startFormatLocked() error {
 	uri := e.lspService.URI
 	caps := e.lspService.Capabilities
 	baseSource := []byte(e.table.CombinePieces())
+	// Captured now, not read as ed.cursor at apply time — the format
+	// response repositions the cursor (finishBufferMutationLocked), so it
+	// needs the same pane-targeting as the other async sites, not just a
+	// popup field. See requestHoverLocked's comment on the same pattern.
+	targetCursor := e.cursor
 
 	if server == nil {
 		return fmt.Errorf("no LSP server running for this buffer")
@@ -198,7 +213,7 @@ func (e *Editor) startFormatLocked() error {
 				ed.setStatusMessageLocked("already formatted")
 				return
 			}
-			ed.applyTextEditsLocked(edits, baseSource)
+			ed.applyTextEditsForLocked(targetCursor, edits, baseSource)
 			ed.setStatusMessageLocked("formatted")
 		}
 	})
@@ -228,6 +243,9 @@ func (e *Editor) executeWriteLocked(path string) error {
 
 	uri := e.lspService.URI
 	baseSource := []byte(e.table.CombinePieces())
+	// Captured now, not read as ed.cursor at apply time — see
+	// startFormatLocked's comment on the same pattern.
+	targetCursor := e.cursor
 	e.setStatusMessageLocked("formatting before save...")
 
 	e.runAsync(func() asyncApply {
@@ -237,7 +255,7 @@ func (e *Editor) executeWriteLocked(path string) error {
 				return // stale — a different buffer/server is active now
 			}
 			if formatErr == nil && len(edits) > 0 {
-				ed.applyTextEditsLocked(edits, baseSource)
+				ed.applyTextEditsForLocked(targetCursor, edits, baseSource)
 			}
 			if saveErr := ed.saveLocked(path); saveErr != nil {
 				ed.setStatusMessageLocked(fmt.Sprintf("save failed: %v", saveErr))
@@ -284,6 +302,23 @@ func (e *Editor) applyTextEditsLocked(edits []lspclient.TextEdit, baseSource []b
 	}
 	e.applyTextEditsRawLocked(edits, baseSource)
 	e.finishBufferMutationLocked(e.cursor.ByteOffset)
+}
+
+// applyTextEditsForLocked is applyTextEditsLocked, but repositioning
+// target's cursor rather than whichever one is currently active —
+// temporarily swaps e.cursor to target for the call's duration via
+// useCursorLocked, then restores it. Needed specifically for Format's
+// async response (see startFormatLocked/executeWriteLocked), which can
+// arrive after focus has moved to a different pane than the one that
+// asked for it (see DESIGN_SPLITS.md's async-correctness audit).
+// confirmLSPCompletionLocked doesn't need this — it's synchronous, so
+// "whichever cursor is active" is already the right one. Caller must
+// already hold e.mu.
+func (e *Editor) applyTextEditsForLocked(target *Cursor, edits []lspclient.TextEdit, baseSource []byte) {
+	prev := e.cursor
+	e.useCursorLocked(target)
+	e.applyTextEditsLocked(edits, baseSource)
+	e.useCursorLocked(prev)
 }
 
 // applyTextEditsRawLocked is applyTextEditsLocked's actual apply loop, split
@@ -347,6 +382,13 @@ func (e *Editor) maybeTriggerLSPCompletion(r rune) {
 	e.mu.Lock()
 	generation := e.lspService.NextCompletionGeneration()
 	at := e.cursor.ByteOffset
+	// Captured now, not read as ed.cursor at apply time — see
+	// requestHoverLocked's comment on the same pattern. Complements, not
+	// replaces, the generation check above: generation discards a result
+	// superseded by faster typing in the *same* pane; targetCursor makes
+	// sure a result that *is* still wanted lands on the pane that asked
+	// for it, not whichever pane is focused by the time it arrives.
+	targetCursor := e.cursor
 	source := []byte(e.table.CombinePieces())
 	e.mu.Unlock()
 	pos := lspclient.OffsetToPosition(source, at)
@@ -360,7 +402,7 @@ func (e *Editor) maybeTriggerLSPCompletion(r rune) {
 			if !ed.lspService.IsCurrent(server) || ed.lspService.CompletionGeneration != generation {
 				return // superseded by a newer keystroke — discard
 			}
-			ed.cursor.LSPCompletion = LSPCompletionState{Active: true, Items: list.Items}
+			targetCursor.LSPCompletion = LSPCompletionState{Active: true, Items: list.Items}
 			ed.notifyChange(piecetable.Edit{})
 		}
 	})

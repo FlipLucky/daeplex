@@ -158,6 +158,44 @@ func (e *Editor) GetCursor() Cursor {
 	return *e.cursor
 }
 
+// ActiveCursor returns the actual *Cursor pointer this Editor currently
+// operates on — unlike GetCursor, which deliberately returns a value copy
+// so frontends never get a mutable handle into Editor's internals. A
+// splits layer (see DESIGN_SPLITS.md) is a different kind of consumer: it
+// owns Cursor instances and tells Editor which one to use via UseCursor,
+// so it legitimately needs the real pointer, not a snapshot.
+func (e *Editor) ActiveCursor() *Cursor {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.cursor
+}
+
+// UseCursor swaps which *Cursor this Editor currently operates on.
+// Everything in dispatch.go/internal/interpreter/internal/executor keeps
+// reading and writing e.cursor exactly as before — none of it needs to
+// know the pointer underneath can change between keystrokes. A splits
+// layer (see DESIGN_SPLITS.md) calls this once per keystroke, right
+// before forwarding it to whichever pane currently has focus. Safe
+// because only one pane is ever receiving keystrokes at a time — the same
+// "input stays serialized through whichever pane has focus" invariant
+// CommandContext's own doc comment already states, written before splits
+// existed but anticipating exactly this.
+func (e *Editor) UseCursor(c *Cursor) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.useCursorLocked(c)
+}
+
+// useCursorLocked is UseCursor's body, split out so an already-locked
+// caller — e.g. an asyncApply closure wanting to apply a result against a
+// specific pane's cursor rather than whichever one is currently active —
+// can swap the pointer without a reentrant-lock deadlock (same class of
+// bug this codebase has hit and fixed before: :Format/StartFormat, the
+// key-handling pipeline). Caller must already hold e.mu.
+func (e *Editor) useCursorLocked(c *Cursor) {
+	e.cursor = c
+}
+
 // IndentStringAt returns the leading whitespace a new line starting at
 // byte offset at should have, per the syntax highlighter's own
 // IndentStringAt. "" wherever there's no highlighter (including
