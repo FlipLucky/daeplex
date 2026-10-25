@@ -20,6 +20,7 @@ import (
 
 	"github.com/fliplucky/daeplex/internal/editor"
 	"github.com/fliplucky/daeplex/internal/offset"
+	"github.com/fliplucky/daeplex/internal/splash"
 	"github.com/fliplucky/daeplex/internal/types"
 	"github.com/fliplucky/daeplex/internal/viewmanager"
 	"github.com/fliplucky/daeplex/internal/workspace"
@@ -45,6 +46,12 @@ type GioApp struct {
 	// lives here (per-window), not on Editor, same reasoning as
 	// viewmanager owning view state generally.
 	topRow int
+	// showSplash is true only when this session started on a fresh, empty
+	// buffer with no file path (see CreateApp) — cleared by the first key
+	// event handleEvents sees, regardless of what that key turns out to do
+	// (see handleEvents' own comment for why the keystroke still gets
+	// forwarded normally rather than being swallowed by the dismissal).
+	showSplash bool
 }
 
 func CreateApp(ws *workspace.Workspace) GuiApp {
@@ -61,9 +68,10 @@ func CreateApp(ws *workspace.Workspace) GuiApp {
 	theme.Palette.ContrastFg = color.NRGBA{R: 0x0b, G: 0x0b, B: 0x0c, A: 0xff} // Near-black text for cursor overlay
 
 	return &GioApp{
-		ws:    ws,
-		theme: theme,
-		tag:   new(int),
+		ws:         ws,
+		theme:      theme,
+		tag:        new(int),
+		showSplash: ws.Current().GetFilePath() == "",
 	}
 }
 
@@ -120,51 +128,59 @@ func (g *GioApp) Run() {
 					window.Perform(system.ActionClose)
 				}
 
-				cursor := cur.GetCursor()
-				lineHeight := lineHeightPx(gtx, g.theme)
-				visibleRows := visibleRowCount(gtx, lineHeight)
-				g.topRow = followCursor(g.topRow, cursor.Row, visibleRows)
-				slice := cur.Viewport(g.topRow, visibleRows, viewportMargin)
-				spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
-				diagnostics := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
-				substitutePreview := cur.SubstitutePreviewRanges()
-				substitutePreview = append(substitutePreview, cur.VisualSelectionRanges()...)
+				if g.showSplash {
+					layout.Stack{}.Layout(gtx,
+						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+							return renderSplash(gtx, g.theme)
+						}),
+					)
+				} else {
+					cursor := cur.GetCursor()
+					lineHeight := lineHeightPx(gtx, g.theme)
+					visibleRows := visibleRowCount(gtx, lineHeight)
+					g.topRow = followCursor(g.topRow, cursor.Row, visibleRows)
+					slice := cur.Viewport(g.topRow, visibleRows, viewportMargin)
+					spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
+					diagnostics := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
+					substitutePreview := cur.SubstitutePreviewRanges()
+					substitutePreview = append(substitutePreview, cur.VisualSelectionRanges()...)
 
-				showNumber, relative := cur.LineNumberSettings()
-				gutterWidth := 0
-				if showNumber || relative {
-					gutterWidth = viewmanager.GutterWidth(slice.StartRow + len(slice.Lines) - 1)
+					showNumber, relative := cur.LineNumberSettings()
+					gutterWidth := 0
+					if showNumber || relative {
+						gutterWidth = viewmanager.GutterWidth(slice.StartRow + len(slice.Lines) - 1)
+					}
+
+					cursorPx := &cursorPixel{}
+					layout.Stack{}.Layout(gtx,
+						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+							return layout.Flex{
+								Axis:      layout.Vertical,
+								Alignment: layout.Start,
+							}.Layout(gtx,
+								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+									return renderBody(gtx, g.theme, slice, spans, diagnostics, substitutePreview, cursor, showNumber, relative, gutterWidth, cursorPx)
+								}),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return renderCompletionPopup(gtx, g.theme, cursor)
+								}),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return renderRegisterOverlay(gtx, g.theme, cursor)
+								}),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return renderStatusBar(gtx, g.theme, g.ws, cursor)
+								}),
+							)
+						}),
+						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+							// cursorPx is only ever populated by the first
+							// Expanded child above — layout.Stack lays out its
+							// children in order, synchronously, so by the time
+							// this one runs renderBody has already set it.
+							return renderHoverPopup(gtx, g.theme, cursor, g.topRow, gutterWidth, cursorPx)
+						}),
+					)
 				}
-
-				cursorPx := &cursorPixel{}
-				layout.Stack{}.Layout(gtx,
-					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{
-							Axis:      layout.Vertical,
-							Alignment: layout.Start,
-						}.Layout(gtx,
-							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								return renderBody(gtx, g.theme, slice, spans, diagnostics, substitutePreview, cursor, showNumber, relative, gutterWidth, cursorPx)
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return renderCompletionPopup(gtx, g.theme, cursor)
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return renderRegisterOverlay(gtx, g.theme, cursor)
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return renderStatusBar(gtx, g.theme, g.ws, cursor)
-							}),
-						)
-					}),
-					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-						// cursorPx is only ever populated by the first
-						// Expanded child above — layout.Stack lays out its
-						// children in order, synchronously, so by the time
-						// this one runs renderBody has already set it.
-						return renderHoverPopup(gtx, g.theme, cursor, g.topRow, gutterWidth, cursorPx)
-					}),
-				)
 
 				clipStack.Pop()
 				e.Frame(gtx.Ops)
@@ -215,6 +231,11 @@ func (g *GioApp) handleEvents(gtx layout.Context) {
 		}
 		switch ev := ev.(type) {
 		case key.EditEvent:
+			// Dismiss the splash on the first real key event, same keystroke
+			// still forwarded below rather than swallowed — matches real
+			// nvim's :intro, where e.g. pressing i both dismisses the intro
+			// and enters Insert mode in one keystroke.
+			g.showSplash = false
 			runes := []rune(ev.Text)
 			switch len(runes) {
 			case 0:
@@ -224,6 +245,7 @@ func (g *GioApp) handleEvents(gtx layout.Context) {
 				g.ws.Current().InsertLiteralText(ev.Text)
 			}
 		case key.Event:
+			g.showSplash = false
 			if keyStr, ok := translateKeyEvent(ev); ok {
 				g.ws.HandleKey(keyStr)
 			}
@@ -317,6 +339,33 @@ func followCursor(topRow, cursorRow, visibleRows int) int {
 type cursorPixel struct {
 	X, Y, Height int
 	Found        bool
+}
+
+// renderSplash draws the fresh-buffer intro screen shown before the first
+// keystroke (see GioApp.showSplash) — the same eyebrow+wordmark hierarchy
+// assets/brand/logo.svg already uses, as plain centered text instead of
+// SVG. Centered via layout.Flex/Stack alignment rather than tui-base's
+// manual cell-position math, since Gio already knows the real window size
+// on every frame — no "before first draw" gap to approximate around the
+// way tui-base has to.
+func renderSplash(gtx layout.Context, theme *material.Theme) layout.Dimensions {
+	lines := splash.Lines()
+	children := make([]layout.FlexChild, len(lines))
+	for i, line := range lines {
+		line := line
+		children[i] = layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(theme, theme.TextSize, line.Text)
+			if line.Accent {
+				lbl.Color = color.NRGBA{R: 0xff, G: 0x95, B: 0x00, A: 0xff} // Brand orange
+			} else {
+				lbl.Color = color.NRGBA{R: 0x8e, G: 0x8e, B: 0x93, A: 0xff} // Same muted color as StyleComment
+			}
+			return lbl.Layout(gtx)
+		})
+	}
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx, children...)
+	})
 }
 
 func renderBody(gtx layout.Context, theme *material.Theme, slice viewmanager.Slice, spans []viewmanager.StyledSpan, diagnostics []viewmanager.DiagnosticSpan, substitutePreview []offset.TextRange, cursor editor.Cursor, showNumber, relative bool, gutterWidth int, cursorPx *cursorPixel) layout.Dimensions {

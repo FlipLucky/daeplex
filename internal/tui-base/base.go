@@ -9,6 +9,7 @@ import (
 
 	"github.com/fliplucky/daeplex/internal/editor"
 	"github.com/fliplucky/daeplex/internal/offset"
+	"github.com/fliplucky/daeplex/internal/splash"
 	"github.com/fliplucky/daeplex/internal/types"
 	"github.com/fliplucky/daeplex/internal/viewmanager"
 	"github.com/fliplucky/daeplex/internal/workspace"
@@ -199,6 +200,14 @@ func Boot(ws *workspace.Workspace) error {
 	editorBg := tcell.GetColor("#0b0b0c")
 	editorFg := tcell.GetColor("#ffffff")
 	surfaceBg := tcell.GetColor("#111113")
+
+	// showSplash is true only when this session started on a fresh, empty
+	// buffer with no file path — cleared by the first key SetInputCapture
+	// sees below, regardless of what that key turns out to do (the same
+	// keystroke is still forwarded to ws.HandleKey normally, not swallowed
+	// by the dismissal — matches real nvim's :intro, where e.g. pressing i
+	// both dismisses the intro and enters Insert mode in one keystroke).
+	showSplash := ws.Current().GetFilePath() == ""
 
 	// Main editor display view
 	editorView := tview.NewTextView().
@@ -450,6 +459,11 @@ func Boot(ws *workspace.Workspace) error {
 
 	// Capture and handle raw keyboard events for Vim emulation
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		// Every call here is a real key event (tcell has no separate
+		// focus-only event the way Gio does), so dismissing unconditionally
+		// is safe — see showSplash's own comment above.
+		showSplash = false
+
 		var keyStr string
 
 		switch event.Key() {
@@ -493,6 +507,24 @@ func Boot(ws *workspace.Workspace) error {
 		return event
 	})
 
+	// Draws the splash screen directly on the raw tcell.Screen in place of
+	// tview's normal root draw (returning true skips it, per
+	// SetBeforeDrawFunc's own contract) — not rendered through editorView/
+	// tview at all, since centering it exactly needs the real current
+	// terminal size, and this hook is the one place that's available fresh
+	// on every single draw (unlike editorView.GetInnerRect(), which isn't
+	// reliable before the first real draw — see cursorTopPadding's own
+	// comment on the same limitation). This also means a live terminal
+	// resize while the splash is still showing self-corrects for free, with
+	// no extra plumbing.
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		if !showSplash {
+			return false
+		}
+		drawSplashScreen(screen, editorBg)
+		return true
+	})
+
 	// Drive the terminal's own real cursor instead of simulating one with
 	// inverted-color text (see styledLineText's doc comment for why): a
 	// solid block in Normal/Visual/Command, a thin bar in Insert — real
@@ -513,6 +545,43 @@ func Boot(ws *workspace.Workspace) error {
 	})
 
 	return app.SetRoot(pages, true).Run()
+}
+
+// drawSplashScreen paints the fresh-buffer intro screen directly onto
+// screen (see Boot's SetBeforeDrawFunc hook) — the same eyebrow+wordmark
+// hierarchy assets/brand/logo.svg already uses, as plain centered text
+// instead of SVG. Centering is exact, not approximate: screen.Size() is
+// the real current terminal size on every call, unlike editorView's own
+// layout, which isn't reliably known this early.
+func drawSplashScreen(screen tcell.Screen, bg tcell.Color) {
+	width, height := screen.Size()
+	bgStyle := tcell.StyleDefault.Background(bg)
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			screen.SetContent(x, y, ' ', nil, bgStyle)
+		}
+	}
+
+	lines := splash.Lines()
+	top := height/2 - len(lines)/2
+	if top < 0 {
+		top = 0
+	}
+	for i, line := range lines {
+		fg := tcell.GetColor("#8e8e93") // Same muted color as StyleComment
+		if line.Accent {
+			fg = tcell.GetColor("#ff9500") // Brand orange
+		}
+		style := bgStyle.Foreground(fg)
+		runes := []rune(line.Text)
+		left := width/2 - len(runes)/2
+		if left < 0 {
+			left = 0
+		}
+		for j, r := range runes {
+			screen.SetContent(left+j, top+i, r, nil, style)
+		}
+	}
 }
 
 // renderHoverPopup positions and shows/hides the cursor-anchored hover/
