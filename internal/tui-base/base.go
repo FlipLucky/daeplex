@@ -10,6 +10,7 @@ import (
 	"github.com/fliplucky/daeplex/internal/editor"
 	"github.com/fliplucky/daeplex/internal/offset"
 	"github.com/fliplucky/daeplex/internal/splash"
+	"github.com/fliplucky/daeplex/internal/splitview"
 	"github.com/fliplucky/daeplex/internal/types"
 	"github.com/fliplucky/daeplex/internal/viewmanager"
 	"github.com/fliplucky/daeplex/internal/workspace"
@@ -22,6 +23,20 @@ import (
 // maxCompletionRows bounds both the :e/:w path-completion bar and the LSP
 // autocomplete popup to at most this many visible candidates.
 const maxCompletionRows = 8
+
+// viewportRadius is how many rows above/below the cursor get fetched —
+// generous compared to any real terminal height, tiny compared to a large
+// file, so rendering scales with editing activity near the cursor rather
+// than total file size (replaces the old naive GetText()+strings.Split of
+// the whole document on every keystroke).
+const viewportRadius = 200
+
+// cursorTopPadding is how many rows from the top of the terminal's visible
+// window the cursor is kept — simpler than gui-base's minimal-scroll
+// followCursor (which needs exact on-screen-row knowledge this widget's
+// internal scrolling doesn't expose cheaply), but a real improvement over
+// no auto-follow at all, which is what existed here before.
+const cursorTopPadding = 10
 
 func completionWindow(candidates []string, index, maxRows int) ([]string, int) {
 	if len(candidates) <= maxRows {
@@ -193,6 +208,74 @@ func styledLineText(line string, lineStart int, spans []viewmanager.StyledSpan, 
 	return b.String()
 }
 
+// renderPane draws one split pane's worth of content into view: it swaps
+// cur's active cursor to pane.Cursor first (see editor.Editor.UseCursor's
+// doc comment) so every per-cursor accessor below — GetCursor,
+// SubstitutePreviewRanges, VisualSelectionRanges, and (via GetCursor)
+// Completion/RegisterOverview/Hover/LSPCompletion/SignatureHelp — reads
+// this pane's own independent state rather than whichever pane happened
+// to render (or receive a keystroke) last. Returns the cursor's on-screen
+// row/column within view (gutter-adjusted) and its mode, for the caller to
+// use when positioning the terminal's own real cursor and the hover
+// popup — see Boot's renderContent and SetAfterDrawFunc.
+func renderPane(view *tview.TextView, cur *editor.Editor, pane *splitview.Pane, titlePrefix string) (screenRow, screenCol int, mode types.Mode) {
+	cur.UseCursor(pane.Cursor)
+	cursor := cur.GetCursor()
+	filePath := cur.GetFilePath()
+	if filePath == "" {
+		filePath = "[No Name]"
+	}
+
+	view.SetTitle(fmt.Sprintf(" %s — %s ", titlePrefix, filePath))
+
+	slice := cur.Viewport(cursor.Row, 1, viewportRadius)
+	spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
+	diagnosticSpans := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
+	substitutePreview := cur.SubstitutePreviewRanges()
+	substitutePreview = append(substitutePreview, cur.VisualSelectionRanges()...)
+
+	showNumber, relative := cur.LineNumberSettings()
+	gutterWidth := 0
+	if showNumber || relative {
+		gutterWidth = viewmanager.GutterWidth(slice.StartRow + len(slice.Lines) - 1)
+	}
+
+	var formattedLines []string
+	for i, line := range slice.Lines {
+		lineStart := slice.LineOffsets[i]
+		lineSpans := viewmanager.SpansForRange(spans, lineStart, lineStart+len(line))
+		lineDiagnostics := viewmanager.DiagnosticSpansForRange(diagnosticSpans, lineStart, lineStart+len(line))
+		linePreview := viewmanager.SubstitutePreviewRangesForRange(substitutePreview, lineStart, lineStart+len(line))
+
+		var rendered string
+		switch {
+		case len(lineSpans) == 0 && len(lineDiagnostics) == 0 && len(linePreview) == 0:
+			rendered = line
+		default:
+			rendered = styledLineText(line, lineStart, lineSpans, lineDiagnostics, linePreview)
+		}
+		if msg, ok := viewmanager.DiagnosticMessageForRange(lineDiagnostics, lineStart, lineStart+len(line)); ok {
+			rendered += virtualDiagnosticText(msg)
+		}
+		if gutterWidth > 0 {
+			gutterText := viewmanager.GutterText(slice.StartRow+i, cursor.Row, showNumber, relative, gutterWidth)
+			rendered = fmt.Sprintf("[#8e8e93:%s]%s[%s:%s:U]%s", editorBgHex, gutterText, editorFgHex, editorBgHex, rendered)
+		}
+		formattedLines = append(formattedLines, rendered)
+	}
+
+	view.SetText(strings.Join(formattedLines, "\n"))
+
+	cursorRow := cursor.Row - slice.StartRow
+	scrollRow := cursorRow - cursorTopPadding
+	if scrollRow < 0 {
+		scrollRow = 0
+	}
+	view.ScrollTo(scrollRow, 0)
+
+	return cursorRow - scrollRow, cursor.Col + gutterWidth, cursor.Mode
+}
+
 func Boot(ws *workspace.Workspace) error {
 	app := tview.NewApplication()
 
@@ -221,6 +304,38 @@ func Boot(ws *workspace.Workspace) error {
 	editorView.SetBackgroundColor(editorBg)
 	editorView.SetTextColor(editorFg)
 
+	// splitLayout is the splits PoC (see internal/splitview's package doc
+	// comment and DESIGN_SPLITS.md) wired to a real frontend for the first
+	// time: "<C-w>v" splits ws.Current()'s buffer into a second pane with
+	// its own independent cursor, "<C-w>w" cycles focus between them.
+	// Deliberately PoC-scoped, not full v1: panes always show whichever
+	// Editor was current at Boot time, not whatever Workspace.Current()
+	// happens to be later — switching buffers (:e/:bnext) while split
+	// silently keeps both panes on the original buffer rather than
+	// following the switch (real v1 routes splits through *Workspace
+	// itself, not a single captured *editor.Editor — see
+	// DESIGN_SPLITS.md's "Open questions").
+	splitLayout := splitview.New(ws.Current())
+
+	// editorView2 is the second pane, shown only once a split actually
+	// happens (collapsed to 0 width via panesFlex.ResizeItem below) — same
+	// construction as editorView, just a second instance.
+	editorView2 := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true)
+
+	editorView2.SetBorder(true).
+		SetTitle("DaePlex TUI").
+		SetBorderColor(tcell.GetColor("#111113"))
+
+	editorView2.SetBackgroundColor(editorBg)
+	editorView2.SetTextColor(editorFg)
+
+	panesFlex := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(editorView, 0, 1, true).
+		AddItem(editorView2, 0, 0, false)
+
 	// :e/:w completion popup — collapsed to 0 height (via ResizeItem in
 	// renderContent) whenever no completion is in progress.
 	completionView := tview.NewTextView().
@@ -243,11 +358,11 @@ func Boot(ws *workspace.Workspace) error {
 		SetDynamicColors(true)
 	statusBar.SetBackgroundColor(surfaceBg)
 
-	// Layout: editor filling top space, completion popup + register
+	// Layout: editor pane(s) filling top space, completion popup + register
 	// overview + status bar at the bottom.
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(editorView, 0, 1, true).
+		AddItem(panesFlex, 0, 1, true).
 		AddItem(completionView, 0, 0, false).
 		AddItem(registerView, 0, 0, false).
 		AddItem(statusBar, 1, 0, false)
@@ -270,89 +385,58 @@ func Boot(ws *workspace.Workspace) error {
 		AddPage("main", flex, true, true).
 		AddPage("hover", hoverPopup, false, false)
 
-	// viewportRadius is how many rows above/below the cursor get fetched —
-	// generous compared to any real terminal height, tiny compared to a
-	// large file, so rendering scales with editing activity near the
-	// cursor rather than total file size (replaces the old naive
-	// GetText()+strings.Split of the whole document on every keystroke).
-	const viewportRadius = 200
-	// cursorTopPadding is how many rows from the top of the terminal's
-	// visible window the cursor is kept — simpler than gui-base's
-	// minimal-scroll followCursor (which needs exact on-screen-row
-	// knowledge this widget's internal scrolling doesn't expose cheaply),
-	// but a real improvement over no auto-follow at all, which is what
-	// existed here before.
-	const cursorTopPadding = 10
-
 	// cursorScreenRow/Col and cursorMode are read by the SetAfterDrawFunc
 	// hook below to position and shape the terminal's own real cursor —
 	// both tview's draw cycle and renderContent always run on the same
 	// single-threaded event loop (direct calls, or via
 	// app.QueueUpdateDraw), so these plain variables need no locking.
+	// focusedView tracks which of editorView/editorView2 currently has the
+	// real terminal cursor, so SetAfterDrawFunc positions it against the
+	// right pane's own GetInnerRect.
 	var cursorScreenRow, cursorScreenCol int
 	var cursorMode types.Mode
+	focusedView := editorView
 
 	// Function to rebuild rendering text with cursor block highlight
 	renderContent := func() {
 		cur := ws.Current()
+		panes := splitLayout.Panes()
+		focused := splitLayout.Focused()
+
+		screenRow1, screenCol1, mode1 := renderPane(editorView, cur, panes[0], "DaePlex TUI")
+
+		var focusedScreenRow, focusedScreenCol int
+		var focusedMode types.Mode
+		if len(panes) == 2 {
+			screenRow2, screenCol2, mode2 := renderPane(editorView2, cur, panes[1], "DaePlex TUI [2]")
+			panesFlex.ResizeItem(editorView2, 0, 1)
+			if focused == panes[1] {
+				focusedScreenRow, focusedScreenCol, focusedMode, focusedView = screenRow2, screenCol2, mode2, editorView2
+			} else {
+				focusedScreenRow, focusedScreenCol, focusedMode, focusedView = screenRow1, screenCol1, mode1, editorView
+			}
+		} else {
+			panesFlex.ResizeItem(editorView2, 0, 0)
+			focusedScreenRow, focusedScreenCol, focusedMode, focusedView = screenRow1, screenCol1, mode1, editorView
+		}
+
+		// renderPane leaves the Editor's active cursor pointing at
+		// whichever pane rendered last — restore it to the actually-
+		// focused pane so the hover/completion/register/status-bar reads
+		// below (and the very next real keystroke, see SetInputCapture)
+		// see the right one.
+		cur.UseCursor(focused.Cursor)
 		cursor := cur.GetCursor()
 		filePath := cur.GetFilePath()
 		if filePath == "" {
 			filePath = "[No Name]"
 		}
 
-		editorView.SetTitle(fmt.Sprintf(" DaePlex TUI — %s ", filePath))
+		cursorScreenRow = focusedScreenRow
+		cursorScreenCol = focusedScreenCol
+		cursorMode = focusedMode
 
-		slice := cur.Viewport(cursor.Row, 1, viewportRadius)
-		spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
-		diagnosticSpans := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
-		substitutePreview := cur.SubstitutePreviewRanges()
-		substitutePreview = append(substitutePreview, cur.VisualSelectionRanges()...)
-
-		showNumber, relative := cur.LineNumberSettings()
-		gutterWidth := 0
-		if showNumber || relative {
-			gutterWidth = viewmanager.GutterWidth(slice.StartRow + len(slice.Lines) - 1)
-		}
-
-		var formattedLines []string
-		for i, line := range slice.Lines {
-			lineStart := slice.LineOffsets[i]
-			lineSpans := viewmanager.SpansForRange(spans, lineStart, lineStart+len(line))
-			lineDiagnostics := viewmanager.DiagnosticSpansForRange(diagnosticSpans, lineStart, lineStart+len(line))
-			linePreview := viewmanager.SubstitutePreviewRangesForRange(substitutePreview, lineStart, lineStart+len(line))
-
-			var rendered string
-			switch {
-			case len(lineSpans) == 0 && len(lineDiagnostics) == 0 && len(linePreview) == 0:
-				rendered = line
-			default:
-				rendered = styledLineText(line, lineStart, lineSpans, lineDiagnostics, linePreview)
-			}
-			if msg, ok := viewmanager.DiagnosticMessageForRange(lineDiagnostics, lineStart, lineStart+len(line)); ok {
-				rendered += virtualDiagnosticText(msg)
-			}
-			if gutterWidth > 0 {
-				gutterText := viewmanager.GutterText(slice.StartRow+i, cursor.Row, showNumber, relative, gutterWidth)
-				rendered = fmt.Sprintf("[#8e8e93:%s]%s[%s:%s:U]%s", editorBgHex, gutterText, editorFgHex, editorBgHex, rendered)
-			}
-			formattedLines = append(formattedLines, rendered)
-		}
-
-		editorView.SetText(strings.Join(formattedLines, "\n"))
-
-		cursorRow := cursor.Row - slice.StartRow
-		scrollRow := cursorRow - cursorTopPadding
-		if scrollRow < 0 {
-			scrollRow = 0
-		}
-		editorView.ScrollTo(scrollRow, 0)
-
-		cursorScreenRow = cursorRow - scrollRow
-		cursorScreenCol = cursor.Col + gutterWidth
-		cursorMode = cursor.Mode
-
-		renderHoverPopup(pages, hoverPopup, editorView, cursor, cursorRow, scrollRow, gutterWidth)
+		renderHoverPopup(pages, hoverPopup, focusedView, cursor, focusedScreenRow, focusedScreenCol)
 
 		if completion := cursor.Completion; completion.Active && len(completion.Candidates) > 0 {
 			windowed, selected := completionWindow(completion.Candidates, completion.Index, maxCompletionRows)
@@ -483,6 +567,8 @@ func Boot(ws *workspace.Workspace) error {
 			keyStr = "<Down>"
 		case tcell.KeyCtrlR:
 			keyStr = "<C-r>"
+		case tcell.KeyCtrlW:
+			keyStr = "<C-w>"
 		case tcell.KeyTab:
 			keyStr = "<Tab>"
 		case tcell.KeyCtrlN:
@@ -495,13 +581,43 @@ func Boot(ws *workspace.Workspace) error {
 			}
 		}
 
-		if keyStr != "" {
-			if ws.HandleKey(keyStr) {
-				if ws.Current().IsQuitRequested() {
-					app.Stop()
-				}
-				return nil
+		if keyStr == "" {
+			return event
+		}
+
+		// splitLayout gets first look, the same one-keystroke-early peek
+		// shape Workspace.HandleKey already uses for its own Command-mode
+		// interception (see DESIGN_SPLITS.md's "<C-w> routing" section) —
+		// "<C-w>" and whatever follows it never reach ws.HandleKey at all.
+		if splitLayout.Intercept(keyStr) {
+			// Every other redraw in this app rides on ws.Current().ChangeChan()/
+			// ws.Switched() (see the goroutine above) — those only fire from
+			// inside Editor/Workspace, so a pure splitLayout state change
+			// (Split/FocusNext touches neither) would otherwise sit
+			// invisible on screen until some later keystroke happens to
+			// trigger one of those channels. Call renderContent directly
+			// (not via app.QueueUpdateDraw, which is for *other* goroutines
+			// to safely reach the UI thread — this callback already runs on
+			// tview's own event-loop goroutine, and queuing a send back to
+			// itself here deadlocks: the loop would be blocked waiting on
+			// its own update channel from inside the very call it needs to
+			// return from to drain it).
+			renderContent()
+			return nil
+		}
+
+		// Every other keystroke is forwarded through ws.HandleKey (not
+		// splitLayout.HandleKey's own simpler passthrough — see
+		// splitview.Layout.Intercept's doc comment) so :e/:bnext/:bprev/
+		// :bd/:ls keep working while split, with the Editor's active
+		// cursor swapped to whichever pane actually has focus first.
+		focused := splitLayout.Focused()
+		focused.Editor.UseCursor(focused.Cursor)
+		if ws.HandleKey(keyStr) {
+			if ws.Current().IsQuitRequested() {
+				app.Stop()
 			}
+			return nil
 		}
 
 		return event
@@ -532,10 +648,11 @@ func Boot(ws *workspace.Workspace) error {
 	// under the hood), confirmed present in the installed tcell version,
 	// not an approximation tview's tag-string rendering could ever
 	// express (it has no notion of "bar" at all). Runs after every draw,
-	// same goroutine as renderContent, so cursorScreenRow/Col/cursorMode
-	// are always current.
+	// same goroutine as renderContent, so cursorScreenRow/Col/cursorMode/
+	// focusedView are always current — focusedView is editorView2 rather
+	// than editorView whenever a split's second pane has focus.
 	app.SetAfterDrawFunc(func(screen tcell.Screen) {
-		innerX, innerY, _, _ := editorView.GetInnerRect()
+		innerX, innerY, _, _ := focusedView.GetInnerRect()
 		style := tcell.CursorStyleSteadyBlock
 		if cursorMode == types.ModeInsert {
 			style = tcell.CursorStyleSteadyBar
@@ -585,19 +702,19 @@ func drawSplashScreen(screen tcell.Screen, bg tcell.Color) {
 }
 
 // renderHoverPopup positions and shows/hides the cursor-anchored hover/
-// completion popup. Exact terminal-cell positioning (unlike gui-base,
-// which has no pixel-accurate cursor position to anchor on and uses a
-// font-metric approximation instead): editorView.GetInnerRect() gives its
-// content area in real terminal cells, and cursorRow/scrollRow (already
-// computed by the caller for ScrollTo) give the cursor's row within that
-// area. Prefers showing below the cursor's line; flips above if there's
-// not enough room below, matching common completion-popup convention.
-// gutterWidth (0 when the line-number gutter is off) shifts the anchor
-// right by the same amount the gutter pushes the cursor's own screen
-// column (see renderContent's cursorScreenCol).
-func renderHoverPopup(pages *tview.Pages, popup *tview.TextView, editorView *tview.TextView, cursor editor.Cursor, cursorRow, scrollRow, gutterWidth int) {
+// completion popup against whichever pane is focused (editorView — the
+// one pane that actually receives keystrokes, so the only one a hover/
+// completion request can belong to). Exact terminal-cell positioning
+// (unlike gui-base, which has no pixel-accurate cursor position to anchor
+// on and uses a font-metric approximation instead): editorView.GetInnerRect()
+// gives its content area in real terminal cells; onScreenRow/screenCol
+// (renderPane's own return values — already gutter-adjusted and already
+// relative to that pane's own scroll position) give the cursor's position
+// within it. Prefers showing below the cursor's line; flips above if
+// there's not enough room below, matching common completion-popup
+// convention.
+func renderHoverPopup(pages *tview.Pages, popup *tview.TextView, editorView *tview.TextView, cursor editor.Cursor, onScreenRow, screenCol int) {
 	innerX, innerY, innerW, innerH := editorView.GetInnerRect()
-	onScreenRow := cursorRow - scrollRow
 
 	var lines []string
 	selected := -1
@@ -662,7 +779,7 @@ func renderHoverPopup(pages *tview.Pages, popup *tview.TextView, editorView *tvi
 		height = innerH
 	}
 
-	x := innerX + gutterWidth + cursor.Col
+	x := innerX + screenCol
 	if x+width > innerX+innerW {
 		x = innerX + innerW - width
 	}

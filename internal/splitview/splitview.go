@@ -75,19 +75,22 @@ func (l *Layout) FocusNext() {
 	l.focused = (l.focused + 1) % len(l.panes)
 }
 
-// HandleKey intercepts a "<C-w>" prefix sequence one keystroke early, the
+// Intercept consumes a "<C-w>" prefix sequence one keystroke early, the
 // same shape Workspace.HandleKey already uses for peeking at a pending
 // Command-mode buffer before forwarding — see DESIGN_SPLITS.md's
 // "<C-w> routing" section. PoC scope: "<C-w>v" (split) and "<C-w>w"
-// (cycle focus) only — real v1 adds "<C-w>s"/"<C-w>q" and routes through
-// a *workspace.Workspace instead of a single *editor.Editor directly.
+// (cycle focus) only — real v1 adds "<C-w>s"/"<C-w>q". Returns true when
+// key was consumed as part of a window command (whether or not it did
+// anything — an unrecognized key after "<C-w>" is still swallowed, same
+// as real vim); false means the caller should forward key itself.
 //
-// Every other keystroke swaps the Editor's active cursor to the focused
-// pane's own (editor.Editor.UseCursor) before forwarding — this is the
-// one line that makes the whole PoC's premise real: the same Editor,
-// two independent cursors, whichever one is focused is the one dispatch
-// actually operates on.
-func (l *Layout) HandleKey(key string) bool {
+// Deliberately knows nothing about *workspace.Workspace or how a caller
+// forwards an unconsumed key — a frontend wrapping more than one Editor
+// (tui-base/gui-base, via Workspace) needs to forward through
+// Workspace.HandleKey to keep :e/:bnext/etc. working, which this package
+// has no business knowing about; a bare single-Editor caller (see
+// HandleKey below, and this package's own tests) can forward directly.
+func (l *Layout) Intercept(key string) bool {
 	if l.pendingWindowPrefix {
 		l.pendingWindowPrefix = false
 		switch key {
@@ -102,7 +105,20 @@ func (l *Layout) HandleKey(key string) bool {
 		l.pendingWindowPrefix = true
 		return true
 	}
+	return false
+}
 
+// HandleKey is Intercept plus direct single-Editor forwarding — the
+// convenience path for a caller with no Workspace layer of its own (this
+// package's tests). Swaps the Editor's active cursor to the focused
+// pane's own (editor.Editor.UseCursor) before forwarding any
+// non-window-command key — the one line that makes the whole PoC's
+// premise real: the same Editor, two independent cursors, whichever one
+// is focused is the one dispatch actually operates on.
+func (l *Layout) HandleKey(key string) bool {
+	if l.Intercept(key) {
+		return true
+	}
 	focused := l.Focused()
 	focused.Editor.UseCursor(focused.Cursor)
 	return focused.Editor.HandleKey(key)
