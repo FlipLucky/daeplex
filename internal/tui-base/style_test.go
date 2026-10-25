@@ -20,7 +20,7 @@ func TestStyledLineTextAppliesSpanColor(t *testing.T) {
 		{TextRange: offset.TextRange{Start: 6, Length: 5}, Style: types.StyleString}, // "world"
 	}
 	got := styledLineText("hello world", 0, spans, nil, nil)
-	want := "hello [#9ece6a:#1a1b26:U]w[#a9b1d6:#1a1b26:U][#9ece6a:#1a1b26:U]o[#a9b1d6:#1a1b26:U][#9ece6a:#1a1b26:U]r[#a9b1d6:#1a1b26:U][#9ece6a:#1a1b26:U]l[#a9b1d6:#1a1b26:U][#9ece6a:#1a1b26:U]d[#a9b1d6:#1a1b26:U]"
+	want := "hello [#30d5c8:#0b0b0c:U]w[#ffffff:#0b0b0c:U][#30d5c8:#0b0b0c:U]o[#ffffff:#0b0b0c:U][#30d5c8:#0b0b0c:U]r[#ffffff:#0b0b0c:U][#30d5c8:#0b0b0c:U]l[#ffffff:#0b0b0c:U][#30d5c8:#0b0b0c:U]d[#ffffff:#0b0b0c:U]"
 	if got != want {
 		t.Errorf("styledLineText with span = %q, want %q", got, want)
 	}
@@ -35,7 +35,7 @@ func TestStyledLineTextRespectsMultiByteRuneOffsets(t *testing.T) {
 		{TextRange: offset.TextRange{Start: 3, Length: 1}, Style: types.StyleNumber},
 	}
 	got := styledLineText(line, 0, spans, nil, nil)
-	want := "h" + "é" + "[#ff9e64:#1a1b26:U]l[#a9b1d6:#1a1b26:U]" + "lo"
+	want := "h" + "é" + "[#dd7a00:#0b0b0c:U]l[#ffffff:#0b0b0c:U]" + "lo"
 	if got != want {
 		t.Errorf("styledLineText multi-byte = %q, want %q", got, want)
 	}
@@ -57,7 +57,7 @@ func TestStyledLineTextDiagnosticOverridesColorToSeverityAndUnderlines(t *testin
 		{TextRange: offset.TextRange{Start: 0, Length: 5}, Style: types.StyleDiagnosticError},
 	}
 	got := styledLineText("hello", 0, spans, diagnostics, nil)
-	want := "[#f7768e:#1a1b26:u]h[#a9b1d6:#1a1b26:U][#f7768e:#1a1b26:u]e[#a9b1d6:#1a1b26:U][#f7768e:#1a1b26:u]l[#a9b1d6:#1a1b26:U][#f7768e:#1a1b26:u]l[#a9b1d6:#1a1b26:U][#f7768e:#1a1b26:u]o[#a9b1d6:#1a1b26:U]"
+	want := "[#e64a33:#0b0b0c:u]h[#ffffff:#0b0b0c:U][#e64a33:#0b0b0c:u]e[#ffffff:#0b0b0c:U][#e64a33:#0b0b0c:u]l[#ffffff:#0b0b0c:U][#e64a33:#0b0b0c:u]l[#ffffff:#0b0b0c:U][#e64a33:#0b0b0c:u]o[#ffffff:#0b0b0c:U]"
 	if got != want {
 		t.Errorf("styledLineText diagnosed keyword = %q, want %q (severity color + underline, real color visible)", got, want)
 	}
@@ -68,7 +68,7 @@ func TestStyledLineTextDiagnosticAloneUsesSeverityColorUnderlined(t *testing.T) 
 		{TextRange: offset.TextRange{Start: 0, Length: 2}, Style: types.StyleDiagnosticWarning},
 	}
 	got := styledLineText("hi", 0, nil, diagnostics, nil)
-	want := "[#e0af68:#1a1b26:u]h[#a9b1d6:#1a1b26:U][#e0af68:#1a1b26:u]i[#a9b1d6:#1a1b26:U]"
+	want := "[#dd7a00:#0b0b0c:u]h[#ffffff:#0b0b0c:U][#dd7a00:#0b0b0c:u]i[#ffffff:#0b0b0c:U]"
 	if got != want {
 		t.Errorf("styledLineText plain-text diagnostic = %q, want %q", got, want)
 	}
@@ -81,7 +81,7 @@ func TestStyledLineTextDiagnosticAloneUsesSeverityColorUnderlined(t *testing.T) 
 func TestStyledLineTextSubstitutePreviewHighlightsOverPlainText(t *testing.T) {
 	preview := []offset.TextRange{{Start: 0, Length: 2}}
 	got := styledLineText("hi there", 0, nil, nil, preview)
-	want := "[#a9b1d6:#515c7e:U]h[#a9b1d6:#1a1b26:U][#a9b1d6:#515c7e:U]i[#a9b1d6:#1a1b26:U] there"
+	want := "[#ffffff:#3a3a3f:U]h[#ffffff:#0b0b0c:U][#ffffff:#3a3a3f:U]i[#ffffff:#0b0b0c:U] there"
 	if got != want {
 		t.Errorf("styledLineText substitute preview = %q, want %q", got, want)
 	}
@@ -99,7 +99,7 @@ func TestStyledLineTextSubstitutePreviewKeepsSyntaxColor(t *testing.T) {
 	}
 	preview := []offset.TextRange{{Start: 0, Length: 2}}
 	got := styledLineText("if", 0, spans, nil, preview)
-	want := "[#bb9af7:#515c7e:U]i[#a9b1d6:#1a1b26:U][#bb9af7:#515c7e:U]f[#a9b1d6:#1a1b26:U]"
+	want := "[#2f80ed:#3a3a3f:U]i[#ffffff:#0b0b0c:U][#2f80ed:#3a3a3f:U]f[#ffffff:#0b0b0c:U]"
 	if got != want {
 		t.Errorf("styledLineText substitute preview over keyword = %q, want %q", got, want)
 	}

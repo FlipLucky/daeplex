@@ -51,11 +51,14 @@ func CreateApp(ws *workspace.Workspace) GuiApp {
 	theme := material.NewTheme()
 	theme.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
 
-	// Tokyo Night Theme Colors
-	theme.Palette.Bg = color.NRGBA{R: 0x1a, G: 0x1b, B: 0x26, A: 0xff}         // Deep dark blue-gray
-	theme.Palette.Fg = color.NRGBA{R: 0xa9, G: 0xb1, B: 0xd6, A: 0xff}         // Light silver-blue text
-	theme.Palette.ContrastBg = color.NRGBA{R: 0x7a, G: 0xa2, B: 0xf7, A: 0xff} // Tokyo Night bright blue (cursor)
-	theme.Palette.ContrastFg = color.NRGBA{R: 0x1a, G: 0x1b, B: 0x26, A: 0xff} // Deep dark text for cursor overlay
+	// DaePlex theme colors — the same industrial tech-noir palette the
+	// fliplucky.github.io portfolio runs on (near-black ground, one warm
+	// brand accent), replacing the earlier Tokyo Night palette (see
+	// CLAUDE.md's Current phase, 2026-10-25).
+	theme.Palette.Bg = color.NRGBA{R: 0x0b, G: 0x0b, B: 0x0c, A: 0xff}         // Near-black ground
+	theme.Palette.Fg = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}         // White text
+	theme.Palette.ContrastBg = color.NRGBA{R: 0xff, G: 0x95, B: 0x00, A: 0xff} // Brand orange (cursor)
+	theme.Palette.ContrastFg = color.NRGBA{R: 0x0b, G: 0x0b, B: 0x0c, A: 0xff} // Near-black text for cursor overlay
 
 	return &GioApp{
 		ws:    ws,
@@ -391,7 +394,7 @@ func renderLine(gtx layout.Context, theme *material.Theme, line string, absRow, 
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			lbl := material.Label(theme, theme.TextSize, gutterText)
 			lbl.Font.Typeface = "monospace"
-			lbl.Color = color.NRGBA{R: 0x56, G: 0x5f, B: 0x89, A: 0xff} // same muted color as StyleComment
+			lbl.Color = color.NRGBA{R: 0x8e, G: 0x8e, B: 0x93, A: 0xff} // same muted color as StyleComment
 			dims := lbl.Layout(gtx)
 			*xStart = dims.Size.X
 			return dims
@@ -401,7 +404,7 @@ func renderLine(gtx layout.Context, theme *material.Theme, line string, absRow, 
 	if hasMessage {
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			lbl := material.Label(theme, theme.TextSize, virtualDiagnosticText(message))
-			lbl.Color = color.NRGBA{R: 0x56, G: 0x5f, B: 0x89, A: 0xff} // same muted color as StyleComment
+			lbl.Color = color.NRGBA{R: 0x8e, G: 0x8e, B: 0x93, A: 0xff} // same muted color as StyleComment
 			return lbl.Layout(gtx)
 		}))
 	}
@@ -526,9 +529,9 @@ func withDiagnosticUnderline(gtx layout.Context, theme *material.Theme, diagStyl
 // command is still being typed in Command mode — nvim's own "inccommand"
 // preview, scoped here to highlighting the matches themselves (see
 // Editor.SubstitutePreviewRanges). The same muted slate-blue tui-base
-// uses (#515c7e, Tokyo Night's own visual-selection shade), kept
+// uses (#3a3a3f, the palette's own muted neutral shade), kept
 // consistent across both frontends rather than each picking its own.
-var substitutePreviewBg = color.NRGBA{R: 0x51, G: 0x5c, B: 0x7e, A: 0xff}
+var substitutePreviewBg = color.NRGBA{R: 0x3a, G: 0x3a, B: 0x3f, A: 0xff}
 
 // withSubstitutePreviewHighlight draws a full-cell background fill behind
 // content when highlighted, layered underneath whatever the cell already
@@ -558,9 +561,9 @@ func withSubstitutePreviewHighlight(gtx layout.Context, highlighted bool, conten
 func diagnosticColor(style types.Style) (color.NRGBA, bool) {
 	switch style {
 	case types.StyleDiagnosticError:
-		return color.NRGBA{R: 0xf7, G: 0x76, B: 0x8e, A: 0xff}, true
+		return color.NRGBA{R: 0xe6, G: 0x4a, B: 0x33, A: 0xff}, true
 	case types.StyleDiagnosticWarning:
-		return color.NRGBA{R: 0xe0, G: 0xaf, B: 0x68, A: 0xff}, true
+		return color.NRGBA{R: 0xdd, G: 0x7a, B: 0x00, A: 0xff}, true
 	default:
 		return color.NRGBA{}, false
 	}
@@ -579,17 +582,17 @@ func diagnosticColor(style types.Style) (color.NRGBA, bool) {
 func styleColor(theme *material.Theme, style types.Style) color.NRGBA {
 	switch style {
 	case types.StyleKeyword:
-		return color.NRGBA{R: 0xbb, G: 0x9a, B: 0xf7, A: 0xff} // Purple
+		return color.NRGBA{R: 0x2f, G: 0x80, B: 0xed, A: 0xff} // Purple
 	case types.StyleString:
-		return color.NRGBA{R: 0x9e, G: 0xce, B: 0x6a, A: 0xff} // Green
+		return color.NRGBA{R: 0x30, G: 0xd5, B: 0xc8, A: 0xff} // Green
 	case types.StyleComment:
-		return color.NRGBA{R: 0x56, G: 0x5f, B: 0x89, A: 0xff} // Muted gray-blue
+		return color.NRGBA{R: 0x8e, G: 0x8e, B: 0x93, A: 0xff} // Muted gray-blue
 	case types.StyleNumber:
-		return color.NRGBA{R: 0xff, G: 0x9e, B: 0x64, A: 0xff} // Orange
+		return color.NRGBA{R: 0xdd, G: 0x7a, B: 0x00, A: 0xff} // Orange
 	case types.StyleFunction:
-		return color.NRGBA{R: 0x7a, G: 0xa2, B: 0xf7, A: 0xff} // Blue
+		return color.NRGBA{R: 0x24, G: 0x57, B: 0xc9, A: 0xff} // Blue (darker shade, distinct from Keyword/Visual's primary blue)
 	case types.StyleType:
-		return color.NRGBA{R: 0x2a, G: 0xc3, B: 0xde, A: 0xff} // Cyan
+		return color.NRGBA{R: 0x00, G: 0x7f, B: 0x73, A: 0xff} // Cyan
 	default:
 		return theme.Palette.Fg
 	}
@@ -692,7 +695,7 @@ func renderCompletionPopup(gtx layout.Context, theme *material.Theme, cursor edi
 		})
 	}
 
-	popupBg := color.NRGBA{R: 0x24, G: 0x28, B: 0x3b, A: 0xff} // Tokyo Night darker background, matches the status bar
+	popupBg := color.NRGBA{R: 0x11, G: 0x11, B: 0x13, A: 0xff} // Darker surface shade, matches the status bar
 
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
@@ -730,7 +733,7 @@ func renderRegisterOverlay(gtx layout.Context, theme *material.Theme, cursor edi
 		})
 	}
 
-	popupBg := color.NRGBA{R: 0x24, G: 0x28, B: 0x3b, A: 0xff} // Tokyo Night darker background, matches the status bar/completion popup
+	popupBg := color.NRGBA{R: 0x11, G: 0x11, B: 0x13, A: 0xff} // Darker surface shade, matches the status bar/completion popup
 
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
@@ -872,7 +875,7 @@ func renderHoverPopup(gtx layout.Context, theme *material.Theme, cursor editor.C
 	// whole remaining window as its background rect.
 	gtx.Constraints.Min = image.Point{}
 
-	popupBg := color.NRGBA{R: 0x24, G: 0x28, B: 0x3b, A: 0xff}
+	popupBg := color.NRGBA{R: 0x11, G: 0x11, B: 0x13, A: 0xff}
 
 	children := make([]layout.FlexChild, len(lines))
 	for i, line := range lines {
@@ -911,7 +914,7 @@ func renderHoverPopup(gtx layout.Context, theme *material.Theme, cursor editor.C
 }
 
 func renderStatusBar(gtx layout.Context, theme *material.Theme, ws *workspace.Workspace, cursor editor.Cursor) layout.Dimensions {
-	statusBarBg := color.NRGBA{R: 0x24, G: 0x28, B: 0x3b, A: 0xff} // Tokyo Night darker status background
+	statusBarBg := color.NRGBA{R: 0x11, G: 0x11, B: 0x13, A: 0xff} // Darker surface shade for the status bar
 
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
@@ -928,7 +931,7 @@ func renderStatusBar(gtx layout.Context, theme *material.Theme, ws *workspace.Wo
 			// has to be checked ahead of (not alongside) ModeCommand.
 			if cursor.SubstituteConfirm.Active {
 				lbl := material.Label(theme, theme.TextSize, " "+cursor.SubstituteConfirm.Prompt)
-				lbl.Color = color.NRGBA{R: 0xe0, G: 0xaf, B: 0x68, A: 0xff} // Yellow, matches Normal mode's own color
+				lbl.Color = color.NRGBA{R: 0xff, G: 0x95, B: 0x00, A: 0xff} // Yellow, matches Normal mode's own color
 				return lbl.Layout(gtx)
 			}
 
@@ -941,11 +944,11 @@ func renderStatusBar(gtx layout.Context, theme *material.Theme, ws *workspace.Wo
 			var modeColor color.NRGBA
 			switch cursor.Mode {
 			case types.ModeNormal:
-				modeColor = color.NRGBA{R: 0xe0, G: 0xaf, B: 0x68, A: 0xff} // Yellow
+				modeColor = color.NRGBA{R: 0xff, G: 0x95, B: 0x00, A: 0xff} // Yellow
 			case types.ModeInsert:
-				modeColor = color.NRGBA{R: 0x9e, G: 0xce, B: 0x6a, A: 0xff} // Green
+				modeColor = color.NRGBA{R: 0x30, G: 0xd5, B: 0xc8, A: 0xff} // Green
 			case types.ModeVisual:
-				modeColor = color.NRGBA{R: 0xbb, G: 0x9a, B: 0xf7, A: 0xff} // Purple
+				modeColor = color.NRGBA{R: 0x2f, G: 0x80, B: 0xed, A: 0xff} // Purple
 			default:
 				modeColor = theme.Palette.Fg
 			}
@@ -968,7 +971,7 @@ func renderStatusBar(gtx layout.Context, theme *material.Theme, ws *workspace.Wo
 			if err := ws.Current().GetLastCommandError(); err != nil && err != editor.ErrQuit {
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(theme, theme.TextSize, fmt.Sprintf(" | %s", err))
-					lbl.Color = color.NRGBA{R: 0xf7, G: 0x76, B: 0x8e, A: 0xff} // red
+					lbl.Color = color.NRGBA{R: 0xe6, G: 0x4a, B: 0x33, A: 0xff} // red
 					return lbl.Layout(gtx)
 				}))
 			}
@@ -987,7 +990,7 @@ func renderStatusBar(gtx layout.Context, theme *material.Theme, ws *workspace.Wo
 			if err := ws.LastError(); err != nil {
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(theme, theme.TextSize, fmt.Sprintf(" | %s", err))
-					lbl.Color = color.NRGBA{R: 0xf7, G: 0x76, B: 0x8e, A: 0xff} // red
+					lbl.Color = color.NRGBA{R: 0xe6, G: 0x4a, B: 0x33, A: 0xff} // red
 					return lbl.Layout(gtx)
 				}))
 			}

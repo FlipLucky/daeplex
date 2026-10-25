@@ -1305,6 +1305,64 @@ The GitHub remote itself (`github.com/FlipLucky/pieces-store`) has **not**
 been renamed as part of this — that's a separate, explicit decision since
 it's a shared/external resource, not just local repo content.
 
+**Brand identity: logo + first theme pass, 2026-10-25** — a whiteboard
+sketch of "daeplex" (bracket-frame wordmark) became the real logo, refined
+against the color/type system of the user's own portfolio site
+(fliplucky.github.io, its real CSS inspected directly — an "industrial
+tech-noir" language: near-black ground `#0b0b0c`, Space Mono, hard right
+angles, a signature corner-bracket card frame with an accent stripe down
+the right/bottom edges) rather than an invented palette. The brand accent
+settled on the portfolio's own orange (`#ff9500`) specifically because
+that's the color the user already uses for *their own name* in that site's
+nav — not a borrowed status-card color, a borrowed identity color.
+`assets/brand/` holds the result: hand-written `logo.svg`/`icon.svg` (no
+template holes), rasterized via `rsvg-convert` with the real Space Mono
+font to `logo.png`/`logo@2x.png`, `icon-512/192/32/16.png`, and a proper
+multi-resolution `favicon.ico` — each checked by actually looking at the
+rendered pixels (including at 32px) before calling it done, not just
+trusting the rasterizer. `README.md` now leads with the logo.
+
+This also kicked off threading the same palette into the actual app,
+starting with "at least the color scheme" (the full card-frame/
+diagonal-hatching treatment is bigger, separate scope — not started):
+every Tokyo Night hex in `gui-base`/`tui-base` is gone, replaced by the
+portfolio's real palette. The two palettes don't have a 1:1 color count
+(Tokyo Night has ~8 distinct hues for syntax/diagnostics/modes; the
+portfolio's is a deliberately restrained 4 accents — blue/orange/red/teal
+— plus neutrals), so a few old hexes that happened to share a Tokyo Night
+value needed to be told apart rather than blindly find-replaced: `7aa2f7`
+(old bright blue) was both `StyleFunction`'s syntax color *and* the
+cursor/contrast/Command-mode accent in Tokyo Night, but reusing one new
+hex for both would make function names visually indistinguishable from
+the cursor's own highlight color, so `StyleFunction` got its own
+darker-blue shade (`#2457c9`) instead of the brand orange the other roles
+converged on. Same reasoning split `StyleNumber` (`#dd7a00`, an orange
+one shade darker than the brand's own `#ff9500`, so numbers in code don't
+read as "the same color as the cursor") from everything else that used to
+share Tokyo Night's yellow. `StyleDiagnosticWarning` reuses that same
+darker orange — safe, since diagnostic severity only ever renders as an
+underline (see the 2026-09-19 diagnostics-as-underline entry above), never
+as a token's own fill color, so it can't collide with `StyleNumber`'s use
+of the identical hex. `tokyoBgHex`/`tokyoFgHex`/`tokyoStatusBg` in
+`tui-base` were renamed to `editorBgHex`/`editorFgHex`/`surfaceBg` to
+match — no code should still say "Tokyo" once the colors underneath it no
+longer are. Verified via the existing `internal/tui-base/style_test.go`
+suite (hardcoded color-tag expectations updated to match, same tests, no
+behavior changed otherwise) plus `go build`/`vet`/`gofmt`/`test ./...` and
+both tagged `daeplex-gui`/`dp` builds, all clean.
+
+Deliberately not done yet, flagged as separate future scope: the
+diagonal-hatching texture and the corner-bracket "card" frame itself
+(usable for a future modal/panel system) — `gui-base` can do all of this
+natively (it already hand-draws the cursor, diagnostic underlines, and
+`:s///` match highlighting); `tui-base` can do most of it too, since a
+terminal is already a monospace grid and already renders true color, but
+diagonal hatching has no literal terminal equivalent and would need to be
+approximated with block/shade Unicode characters, and the right/bottom-
+only accent border needs custom per-cell drawing rather than tview's
+built-in uniform `Box` border. See `ATOMIC_TASKS.md`/`BACKLOG.md` if this
+gets picked up as real work.
+
 ## Module & toolchain
 
 - Module: `github.com/fliplucky/daeplex`

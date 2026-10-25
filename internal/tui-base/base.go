@@ -38,20 +38,20 @@ func completionWindow(candidates []string, index, maxRows int) ([]string, int) {
 	return candidates[start:end], index - start
 }
 
-// tokyoBgHex/tokyoFgHex are the same Tokyo Night background/default-text
-// colors used throughout this file — named here so the tag-building
-// helpers below don't repeat the literal hex strings.
+// editorBgHex/editorFgHex are the same background/default-text colors used
+// throughout this file — named here so the tag-building helpers below
+// don't repeat the literal hex strings.
 const (
-	tokyoBgHex = "#1a1b26"
-	tokyoFgHex = "#a9b1d6"
+	editorBgHex = "#0b0b0c"
+	editorFgHex = "#ffffff"
 )
 
 // substitutePreviewBgHex is the background a live :s/:%s match gets while
-// its command is still being typed (see styledLineText) — Tokyo Night's
-// own muted slate-blue, the same shade its visual-selection highlight
-// uses, so a match reads as "selected" rather than introducing an
-// unrelated new accent color to the palette.
-const substitutePreviewBgHex = "#515c7e"
+// its command is still being typed (see styledLineText) — the same muted
+// neutral shade the visual-selection highlight uses, so a match reads as
+// "selected" rather than introducing an unrelated new accent color to the
+// palette.
+const substitutePreviewBgHex = "#3a3a3f"
 
 // tviewStyleColor returns the tcell/tview color-tag value for a syntax
 // Style, or ("", false) for types.StyleNone (nothing to wrap, same as an
@@ -77,17 +77,17 @@ const substitutePreviewBgHex = "#515c7e"
 func tviewStyleColor(style types.Style) (string, bool) {
 	switch style {
 	case types.StyleKeyword:
-		return "#bb9af7", true
+		return "#2f80ed", true
 	case types.StyleString:
-		return "#9ece6a", true
+		return "#30d5c8", true
 	case types.StyleComment:
-		return "#565f89", true
+		return "#8e8e93", true
 	case types.StyleNumber:
-		return "#ff9e64", true
+		return "#dd7a00", true
 	case types.StyleFunction:
-		return "#7aa2f7", true
+		return "#2457c9", true
 	case types.StyleType:
-		return "#2ac3de", true
+		return "#007f73", true
 	default:
 		return "", false
 	}
@@ -101,9 +101,9 @@ func tviewStyleColor(style types.Style) (string, bool) {
 func diagnosticColor(style types.Style) (string, bool) {
 	switch style {
 	case types.StyleDiagnosticError:
-		return "#f7768e", true
+		return "#e64a33", true
 	case types.StyleDiagnosticWarning:
-		return "#e0af68", true
+		return "#dd7a00", true
 	default:
 		return "", false
 	}
@@ -116,7 +116,7 @@ func diagnosticColor(style types.Style) (string, bool) {
 // leaves the running underline state unchanged, it does not reset it).
 // Omitting the explicit "U" here would let an underlined diagnostic rune
 // bleed underline onto every following character for the rest of the line.
-const resetTag = "[" + tokyoFgHex + ":" + tokyoBgHex + ":U]"
+const resetTag = "[" + editorFgHex + ":" + editorBgHex + ":U]"
 
 // openTag builds one rune's full style tag: its color (or the default
 // text color if it has none), an explicit background (normally the
@@ -126,7 +126,7 @@ const resetTag = "[" + tokyoFgHex + ":" + tokyoBgHex + ":U]"
 // attribute reason resetTag is.
 func openTag(color, bg string, underline bool) string {
 	if color == "" {
-		color = tokyoFgHex
+		color = editorFgHex
 	}
 	attr := "U"
 	if underline {
@@ -175,7 +175,7 @@ func styledLineText(line string, lineStart int, spans []viewmanager.StyledSpan, 
 			color = diagColor
 			hasColor = true
 		}
-		bg := tokyoBgHex
+		bg := editorBgHex
 		if viewmanager.SubstitutePreviewContains(substitutePreview, abs) {
 			bg = substitutePreviewBgHex
 			hasColor = true // force a tag even over an otherwise-plain rune, so the background still shows
@@ -196,9 +196,9 @@ func Boot(ws *workspace.Workspace) error {
 	app := tview.NewApplication()
 
 	// Color Palette definitions
-	tokyoBg := tcell.GetColor("#1a1b26")
-	tokyoFg := tcell.GetColor("#a9b1d6")
-	tokyoStatusBg := tcell.GetColor("#24283b")
+	editorBg := tcell.GetColor("#0b0b0c")
+	editorFg := tcell.GetColor("#ffffff")
+	surfaceBg := tcell.GetColor("#111113")
 
 	// Main editor display view
 	editorView := tview.NewTextView().
@@ -207,17 +207,17 @@ func Boot(ws *workspace.Workspace) error {
 
 	editorView.SetBorder(true).
 		SetTitle("DaePlex TUI").
-		SetBorderColor(tcell.GetColor("#24283b"))
+		SetBorderColor(tcell.GetColor("#111113"))
 
-	editorView.SetBackgroundColor(tokyoBg)
-	editorView.SetTextColor(tokyoFg)
+	editorView.SetBackgroundColor(editorBg)
+	editorView.SetTextColor(editorFg)
 
 	// :e/:w completion popup — collapsed to 0 height (via ResizeItem in
 	// renderContent) whenever no completion is in progress.
 	completionView := tview.NewTextView().
 		SetDynamicColors(true)
-	completionView.SetBackgroundColor(tokyoStatusBg)
-	completionView.SetTextColor(tokyoFg)
+	completionView.SetBackgroundColor(surfaceBg)
+	completionView.SetTextColor(editorFg)
 
 	// ":register"/":registers" overview — the user's explicit choice of a
 	// docked bottom panel over a cursor-anchored popup ("i like the nvim
@@ -226,13 +226,13 @@ func Boot(ws *workspace.Workspace) error {
 	// tview.Pages/exact-cell-positioning one below.
 	registerView := tview.NewTextView().
 		SetDynamicColors(true)
-	registerView.SetBackgroundColor(tokyoStatusBg)
-	registerView.SetTextColor(tokyoFg)
+	registerView.SetBackgroundColor(surfaceBg)
+	registerView.SetTextColor(editorFg)
 
 	// Bottom Vim status bar
 	statusBar := tview.NewTextView().
 		SetDynamicColors(true)
-	statusBar.SetBackgroundColor(tokyoStatusBg)
+	statusBar.SetBackgroundColor(surfaceBg)
 
 	// Layout: editor filling top space, completion popup + register
 	// overview + status bar at the bottom.
@@ -253,9 +253,9 @@ func Boot(ws *workspace.Workspace) error {
 	hoverPopup := tview.NewTextView().
 		SetDynamicColors(true).
 		SetWrap(false)
-	hoverPopup.SetBackgroundColor(tokyoStatusBg)
-	hoverPopup.SetTextColor(tokyoFg)
-	hoverPopup.SetBorder(true).SetBorderColor(tcell.GetColor("#7aa2f7"))
+	hoverPopup.SetBackgroundColor(surfaceBg)
+	hoverPopup.SetTextColor(editorFg)
+	hoverPopup.SetBorder(true).SetBorderColor(tcell.GetColor("#ff9500"))
 
 	pages := tview.NewPages().
 		AddPage("main", flex, true, true).
@@ -325,7 +325,7 @@ func Boot(ws *workspace.Workspace) error {
 			}
 			if gutterWidth > 0 {
 				gutterText := viewmanager.GutterText(slice.StartRow+i, cursor.Row, showNumber, relative, gutterWidth)
-				rendered = fmt.Sprintf("[#565f89:%s]%s[%s:%s:U]%s", tokyoBgHex, gutterText, tokyoFgHex, tokyoBgHex, rendered)
+				rendered = fmt.Sprintf("[#8e8e93:%s]%s[%s:%s:U]%s", editorBgHex, gutterText, editorFgHex, editorBgHex, rendered)
 			}
 			formattedLines = append(formattedLines, rendered)
 		}
@@ -353,9 +353,9 @@ func Boot(ws *workspace.Workspace) error {
 					b.WriteString("\n")
 				}
 				if i == selected {
-					b.WriteString("[#1a1b26:#7aa2f7]")
+					b.WriteString("[#0b0b0c:#ff9500]")
 					b.WriteString(candidate)
-					b.WriteString("[#a9b1d6:#1a1b26]")
+					b.WriteString("[#ffffff:#0b0b0c]")
 				} else {
 					b.WriteString(candidate)
 				}
@@ -382,24 +382,24 @@ func Boot(ws *workspace.Workspace) error {
 			// already back to Normal while this is active (see
 			// substitute.go's confirm-flow section), so this can't just
 			// be another case alongside ModeCommand below.
-			statusBar.SetText(fmt.Sprintf(" [#e0af68]%s[white]", cursor.SubstituteConfirm.Prompt))
+			statusBar.SetText(fmt.Sprintf(" [#ff9500]%s[white]", cursor.SubstituteConfirm.Prompt))
 		case cursor.Mode == types.ModeCommand:
-			statusBar.SetText(fmt.Sprintf(" [#7aa2f7]:%s[white]", cursor.CommandBuffer))
+			statusBar.SetText(fmt.Sprintf(" [#ff9500]:%s[white]", cursor.CommandBuffer))
 		default:
 			// Update bottom status bar with color-coded modes
 			var modeStr string
 			switch cursor.Mode {
 			case types.ModeNormal:
-				modeStr = "[#e0af68]-- NORMAL --[white]" // Yellow
+				modeStr = "[#ff9500]-- NORMAL --[white]" // Yellow
 			case types.ModeInsert:
-				modeStr = "[#9ece6a]-- INSERT --[white]" // Green
+				modeStr = "[#30d5c8]-- INSERT --[white]" // Green
 			case types.ModeVisual:
-				modeStr = "[#bb9af7]-- VISUAL --[white]" // Purple
+				modeStr = "[#2f80ed]-- VISUAL --[white]" // Purple
 			default:
 				modeStr = cursor.Mode.String()
 			}
 
-			statusLine := fmt.Sprintf(" %s | %s | Row: [#9ece6a]%d[white] Col: [#9ece6a]%d[white] | Offset: [#bb9af7]%d[white]",
+			statusLine := fmt.Sprintf(" %s | %s | Row: [#30d5c8]%d[white] Col: [#30d5c8]%d[white] | Offset: [#2f80ed]%d[white]",
 				modeStr, filePath, cursor.Row, cursor.Col, cursor.ByteOffset)
 			// Surface why a command like :q was refused (e.g. unsaved
 			// changes) — ErrQuit itself isn't an error worth showing, the
@@ -407,7 +407,7 @@ func Boot(ws *workspace.Workspace) error {
 			// a real, user-hit gap — :q being silently refused with zero
 			// feedback looked indistinguishable from :q being broken.
 			if err := cur.GetLastCommandError(); err != nil && err != editor.ErrQuit {
-				statusLine += fmt.Sprintf(" | [#f7768e]%s[white]", err)
+				statusLine += fmt.Sprintf(" | [#e64a33]%s[white]", err)
 			}
 			// Non-error progress text (e.g. ":LspInstall" in flight or its
 			// result) — a separate slot from the error one above, since
@@ -418,7 +418,7 @@ func Boot(ws *workspace.Workspace) error {
 			// Workspace-level outcomes (:e/:bnext/:bprev/:bd/:ls) — a
 			// separate slot from the buffer's own, same error/status split.
 			if err := ws.LastError(); err != nil {
-				statusLine += fmt.Sprintf(" | [#f7768e]%s[white]", err)
+				statusLine += fmt.Sprintf(" | [#e64a33]%s[white]", err)
 			}
 			if msg := ws.StatusMessage(); msg != "" {
 				statusLine += fmt.Sprintf(" | %s", msg)
@@ -572,9 +572,9 @@ func renderHoverPopup(pages *tview.Pages, popup *tview.TextView, editorView *tvi
 			b.WriteString("\n")
 		}
 		if i == selected {
-			b.WriteString("[#1a1b26:#7aa2f7]")
+			b.WriteString("[#0b0b0c:#ff9500]")
 			b.WriteString(line)
-			b.WriteString("[#a9b1d6:#24283b]")
+			b.WriteString("[#ffffff:#111113]")
 		} else {
 			b.WriteString(line)
 		}
@@ -633,7 +633,7 @@ func virtualDiagnosticText(message string) string {
 	if runes := []rune(message); len(runes) > maxVirtualTextLen {
 		message = string(runes[:maxVirtualTextLen-1]) + "…"
 	}
-	return fmt.Sprintf("  [#565f89:%s]// %s[%s:%s:U]", tokyoBgHex, message, tokyoFgHex, tokyoBgHex)
+	return fmt.Sprintf("  [#8e8e93:%s]// %s[%s:%s:U]", editorBgHex, message, editorFgHex, editorBgHex)
 }
 
 func wrapText(text string, width int) []string {

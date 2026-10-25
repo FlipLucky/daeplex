@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/logo.png" alt="DaePlex" width="440">
+</p>
+
 # DaePlex Text Editor. IT WORKS!
 
 > Formerly `pieces-store`, renamed 2026-10-20 — see `CLAUDE.md`'s Current
