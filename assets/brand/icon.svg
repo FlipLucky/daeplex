@@ -1,8 +1,9 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DaePlex icon">
   <rect width="512" height="512" fill="#0b0b0c"/>
-  <line x1="360" y1="60" x2="360" y2="300" stroke="#ff9500" stroke-width="10"/>
-  <line x1="60" y1="300" x2="360" y2="300" stroke="#ff9500" stroke-width="12"/>
-  <path d="M 60 60 L 60 100 M 60 60 L 100 60" stroke="#ff9500" stroke-width="8" stroke-linecap="square" fill="none"/>
-  <path d="M 360 300 L 360 262 M 360 300 L 322 300" stroke="#ff9500" stroke-width="8" stroke-linecap="square" fill="none"/>
-  <text x="210" y="210" text-anchor="middle" font-family="Space Mono, monospace" font-weight="700" font-size="140" fill="#ff9500">dp</text>
+  <line x1="496" y1="16" x2="496" y2="496" stroke="#ff9500" stroke-width="14"/>
+  <line x1="16" y1="496" x2="496" y2="496" stroke="#ff9500" stroke-width="16"/>
+  <path d="M 16 16 L 16 56 M 16 16 L 56 16" stroke="#ff9500" stroke-width="12" stroke-linecap="square" fill="none"/>
+  <path d="M 496 496 L 496 456 M 496 496 L 456 496" stroke="#ff9500" stroke-width="12" stroke-linecap="square" fill="none"/>
+  <text x="147" y="318" text-anchor="middle" font-family="Space Mono, monospace" font-weight="700" font-size="390" fill="#ff9500">D</text>
+  <text x="368" y="468" text-anchor="middle" font-family="Space Mono, monospace" font-weight="700" font-size="390" fill="#ff9500">P</text>
 </svg>
