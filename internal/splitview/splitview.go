@@ -75,14 +75,41 @@ func (l *Layout) FocusNext() {
 	l.focused = (l.focused + 1) % len(l.panes)
 }
 
+// FocusLeft/FocusRight move focus toward the pane on that side, mirroring
+// real vim's "<C-w>h"/"<C-w>l" spatial navigation. PoC scope: this
+// package only ever makes vertical (left/right) splits via Split, and
+// never more than two panes, so "the pane on the left" and "the pane on
+// the right" are unambiguous without any real geometry — index 0 is
+// always the left pane, index 1 the right. A real tree-based Layout (see
+// DESIGN_SPLITS.md) would need to actually walk panes by position; this
+// is deliberately just that one degenerate case made real, not a
+// general spatial-navigation implementation. "<C-w>j"/"<C-w>k" have no
+// meaning yet for the same reason — there is no top/bottom split to move
+// between.
+func (l *Layout) FocusLeft() {
+	if len(l.panes) < 2 {
+		return
+	}
+	l.focused = 0
+}
+
+func (l *Layout) FocusRight() {
+	if len(l.panes) < 2 {
+		return
+	}
+	l.focused = 1
+}
+
 // Intercept consumes a "<C-w>" prefix sequence one keystroke early, the
 // same shape Workspace.HandleKey already uses for peeking at a pending
 // Command-mode buffer before forwarding — see DESIGN_SPLITS.md's
-// "<C-w> routing" section. PoC scope: "<C-w>v" (split) and "<C-w>w"
-// (cycle focus) only — real v1 adds "<C-w>s"/"<C-w>q". Returns true when
-// key was consumed as part of a window command (whether or not it did
-// anything — an unrecognized key after "<C-w>" is still swallowed, same
-// as real vim); false means the caller should forward key itself.
+// "<C-w> routing" section. PoC scope: "<C-w>v" (split), "<C-w>w" (cycle
+// focus), and "<C-w>h"/"<C-w>l" (spatial left/right focus — see
+// FocusLeft/FocusRight's doc comment for why "j"/"k" aren't included yet)
+// only — real v1 adds "<C-w>s"/"<C-w>q". Returns true when key was
+// consumed as part of a window command (whether or not it did anything —
+// an unrecognized key after "<C-w>" is still swallowed, same as real
+// vim); false means the caller should forward key itself.
 //
 // Deliberately knows nothing about *workspace.Workspace or how a caller
 // forwards an unconsumed key — a frontend wrapping more than one Editor
@@ -98,6 +125,10 @@ func (l *Layout) Intercept(key string) bool {
 			l.Split()
 		case "w":
 			l.FocusNext()
+		case "h":
+			l.FocusLeft()
+		case "l":
+			l.FocusRight()
 		}
 		return true
 	}

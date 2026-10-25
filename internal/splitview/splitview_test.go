@@ -67,3 +67,55 @@ func TestSplitIsANoOpWhenAlreadySplit(t *testing.T) {
 		t.Fatalf("Panes() = %d after splitting twice, want 2 (second split should be a no-op)", got)
 	}
 }
+
+// TestSpatialFocusHL confirms "<C-w>h"/"<C-w>l" jump directly to the
+// left/right pane (not just toggle like "<C-w>w") — idempotent from
+// either side, unlike a toggle.
+func TestSpatialFocusHL(t *testing.T) {
+	l := New(editor.NewEditor("content"))
+	l.HandleKey("<C-w>")
+	l.HandleKey("v")
+
+	l.HandleKey("<C-w>")
+	l.HandleKey("l")
+	if l.Focused() != l.Panes()[1] {
+		t.Fatal("<C-w>l should focus the right pane")
+	}
+
+	// From the right pane, "l" again should still land on the right pane
+	// (not toggle back) — the real test that this is spatial, not FocusNext
+	// in disguise.
+	l.HandleKey("<C-w>")
+	l.HandleKey("l")
+	if l.Focused() != l.Panes()[1] {
+		t.Fatal("<C-w>l a second time should still be the right pane, not toggle back")
+	}
+
+	l.HandleKey("<C-w>")
+	l.HandleKey("h")
+	if l.Focused() != l.Panes()[0] {
+		t.Fatal("<C-w>h should focus the left pane")
+	}
+
+	l.HandleKey("<C-w>")
+	l.HandleKey("h")
+	if l.Focused() != l.Panes()[0] {
+		t.Fatal("<C-w>h a second time should still be the left pane, not toggle")
+	}
+}
+
+// TestSpatialFocusHLIsNoOpWithoutASplit confirms "<C-w>h"/"<C-w>l" don't
+// panic or misbehave on a single-pane Layout.
+func TestSpatialFocusHLIsNoOpWithoutASplit(t *testing.T) {
+	l := New(editor.NewEditor("content"))
+	l.HandleKey("<C-w>")
+	l.HandleKey("l")
+	l.HandleKey("<C-w>")
+	l.HandleKey("h")
+	if got := len(l.Panes()); got != 1 {
+		t.Fatalf("Panes() = %d, want 1 (no split happened)", got)
+	}
+	if l.Focused() != l.Panes()[0] {
+		t.Fatal("focus should stay on the only pane")
+	}
+}
