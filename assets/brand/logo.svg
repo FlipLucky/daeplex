@@ -1,0 +1,11 @@
+<svg width="880" height="320" viewBox="0 0 880 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DaePlex logo">
+  <rect width="880" height="320" fill="#0b0b0c"/>
+  <g transform="translate(90,30)">
+    <line x1="580" y1="60" x2="580" y2="200" stroke="#ff9500" stroke-width="4"/>
+    <line x1="120" y1="200" x2="580" y2="200" stroke="#ff9500" stroke-width="5"/>
+    <path d="M 120 60 L 120 78 M 120 60 L 142 60" stroke="#ff9500" stroke-width="3" stroke-linecap="square" fill="none"/>
+    <path d="M 580 200 L 580 182 M 580 200 L 558 200" stroke="#ff9500" stroke-width="3" stroke-linecap="square" fill="none"/>
+    <text x="350" y="100" text-anchor="middle" font-family="Space Mono, monospace" font-weight="400" font-size="15" letter-spacing="4" fill="#8e8e93">CODE EDITOR</text>
+    <text x="350" y="165" text-anchor="middle" font-family="Space Mono, monospace" font-weight="700" font-size="72" letter-spacing="1" fill="#ff9500">DaePlex</text>
+  </g>
+</svg>
