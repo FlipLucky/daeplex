@@ -19,6 +19,33 @@ Development is fully containerized and supports **live-rebuilding (hot-reloading
 
 ---
 
+## Installation
+
+Pre-built binaries are published on the [Releases page](https://github.com/FlipLucky/daeplex/releases) — no Go toolchain required to run DaePlex, just to build it from source (see Development Setup below).
+
+1. **Download** the archive matching your OS/architecture from the latest release:
+   - `daeplex_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) — contains `dp`, the terminal UI and recommended daily driver, plus `daeplex-api`.
+   - `daeplex-gui_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) — the graphical UI, built and shipped separately.
+2. **Extract** it:
+   ```bash
+   tar -xzf daeplex_<version>_linux_amd64.tar.gz
+   ```
+   (on Windows, extract the `.zip` instead)
+3. **Make it executable** (Linux/macOS — usually already set after extracting a tarball, but if not):
+   ```bash
+   chmod +x dp
+   ```
+4. **Run it**:
+   ```bash
+   ./dp path/to/file.md   # or with no argument, for an empty buffer
+   ```
+
+> **macOS**: these binaries aren't notarized yet, so Gatekeeper blocks the first launch ("cannot be opened because the developer cannot be verified"). Clear it once with `xattr -d com.apple.quarantine ./dp`, or right-click the file and choose Open instead of double-clicking.
+>
+> **Windows**: SmartScreen may warn about an unrecognized publisher on first run — click "More info" → "Run anyway."
+
+---
+
 ## Project Structure
 
 ```text
@@ -37,7 +64,9 @@ Development is fully containerized and supports **live-rebuilding (hot-reloading
 
 ---
 
-## Getting Started
+## Development Setup
+
+Only needed if you're building DaePlex from source or contributing — most users just want Installation, above.
 
 ### Prerequisites
 
