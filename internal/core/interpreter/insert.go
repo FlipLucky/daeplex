@@ -1,15 +1,14 @@
 package interpreter
 
 import (
-	"github.com/fliplucky/daeplex/internal/autopairs"
-	"github.com/fliplucky/daeplex/internal/offset"
+	"github.com/fliplucky/daeplex/internal/document/offset"
 	"github.com/fliplucky/daeplex/internal/types"
 )
 
 // RuneContext is a read-only snapshot of the runes immediately before/after
 // the cursor — everything ProcessInsert needs for auto-pairing and
-// pair-collapse decisions (via internal/autopairs, a pure function itself),
-// without any access to Editor's live state.
+// pair-collapse decisions (see autopairs.go, folded into this package
+// 2026-10-31), without any access to Editor's live state.
 type RuneContext struct {
 	Before, After rune
 }
@@ -109,7 +108,7 @@ func ProcessInsert(key string, doc offset.Document, at Position, ctx RuneContext
 // handler doesn't care that this range came from a backspace instead of
 // a dw/diw/dd.
 func resolveBackspace(doc offset.Document, at Position, ctx RuneContext) DeleteAction {
-	if autopairs.IsEmptyPair(ctx.Before, ctx.After) {
+	if IsEmptyPair(ctx.Before, ctx.After) {
 		return DeleteAction{Rng: offset.TextRange{Start: at.ByteOffset - 1, Length: 2}, Ok: true}
 	}
 	if at.ByteOffset <= 0 {
@@ -123,17 +122,17 @@ func resolveBackspace(doc offset.Document, at Position, ctx RuneContext) DeleteA
 }
 
 // resolveRuneInsert mirrors the original insertRuneWithAutoPairing:
-// autopairs.Decide (a pure function) says whether typed should insert
+// Decide (autopairs.go, a pure function) says whether typed should insert
 // plainly, insert itself plus a matching closer with the cursor landing
 // between them, or just skip over an already-present closer. The skip-
 // over case reuses MoveAction (normal.go) — it's exactly a one-rune-
 // forward cursor move, the same shape CharForward already is.
 func resolveRuneInsert(typed rune, doc offset.Document, at Position, ctx RuneContext) Action {
-	switch action, closing := autopairs.Decide(typed, ctx.Before, ctx.After); action {
-	case autopairs.InsertPair:
+	switch decision, closing := Decide(typed, ctx.Before, ctx.After); decision {
+	case InsertPair:
 		caret := len(string(typed))
 		return InsertTextAction{Text: string(typed) + string(closing), CaretOffset: caret}
-	case autopairs.SkipOver:
+	case SkipOver:
 		return MoveAction{Target: offset.MoveRight(doc, at.ByteOffset), Ok: true}
 	default:
 		text := string(typed)

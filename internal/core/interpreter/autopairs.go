@@ -1,14 +1,22 @@
-// Package autopairs decides what should happen when a bracket or quote
-// character is typed next to existing text — auto-close, skip-over an
-// already-inserted closer, or just insert plainly. Pure decision logic: it
-// only ever sees the rune being typed and its immediate neighbors, never a
-// buffer, a cursor, or an Editor. The caller (internal/editor) is the
-// imperative shell that reads the decision and actually mutates the
-// buffer — see BACKLOG.md's 2026-09-24 architecture review for why this
-// split exists.
-package autopairs
+package interpreter
 
 import "unicode"
+
+// This file holds ProcessInsert's bracket/quote auto-pairing decision
+// logic — formerly its own package (internal/autopairs), folded in here
+// 2026-10-31 once an audit confirmed it had exactly one caller
+// (resolveRuneInsert/resolveBackspace, both in insert.go) and no state of
+// its own: a single-caller, stateless decision function, the textbook
+// "fold back in" case per this project's own minimal-primitives test
+// ("does at least one OTHER already-real combination want to call this
+// alone?" — here, no). Still pure: it only ever sees the rune being typed
+// and its immediate neighbors, never a buffer, a cursor, or an Editor.
+//
+// Named PairDecision, not Action, specifically to avoid colliding with
+// this package's own Action interface (normal.go) — a real collision this
+// fold would otherwise introduce, since the two are unrelated: Action is
+// Processor's resolved-unit-of-work output, PairDecision is an internal
+// enum describing what the pairing logic decided.
 
 // bracketPairs is the auto-close table: typing a key on the left should
 // insert it plus its matching close. closingBrackets is its inverse, used
@@ -39,12 +47,12 @@ var quoteRunes = map[rune]bool{
 	'`':  true,
 }
 
-// Action is what should happen when a rune is typed at the cursor.
-type Action int
+// PairDecision is what should happen when a rune is typed at the cursor.
+type PairDecision int
 
 const (
 	// InsertPlain: just insert typed as-is, nothing special about it here.
-	InsertPlain Action = iota
+	InsertPlain PairDecision = iota
 	// InsertPair: insert typed plus its Closing rune, cursor should land
 	// between them.
 	InsertPair
@@ -55,9 +63,10 @@ const (
 
 // Decide returns what should happen when typed is entered with before/after
 // as the runes immediately preceding/following the cursor (0 for "no rune
-// there," e.g. start/end of buffer). Closing is only meaningful when Action
-// is InsertPair — the rune that should be inserted right after typed.
-func Decide(typed, before, after rune) (action Action, closing rune) {
+// there," e.g. start/end of buffer). Closing is only meaningful when the
+// decision is InsertPair — the rune that should be inserted right after
+// typed.
+func Decide(typed, before, after rune) (decision PairDecision, closing rune) {
 	if c, ok := bracketPairs[typed]; ok {
 		return InsertPair, c
 	}
