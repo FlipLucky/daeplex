@@ -10,10 +10,10 @@ This is not the same as a blocker: if something here is actually stopping
 the current phase's work, it belongs in `CLAUDE.md`'s Known Issues, not
 here.
 
-## `internal/editor` structural refactor (pre-Part-3 architecture review, 2026-09-24)
+## `internal/core/editor` structural refactor (pre-Part-3 architecture review, 2026-09-24)
 
 The user paused before starting Part 3 (go-to-definition/multi-buffer) to
-read through `internal/editor` end-to-end and review its structure — not
+read through `internal/core/editor` end-to-end and review its structure — not
 because anything here is broken, everything listed is fully functional.
 The pattern behind most of these: fast, feature-focused implementation
 work correctly avoided restructuring unrelated code mid-feature (a real,
@@ -33,7 +33,7 @@ theme, not urgency — none of these block anything:
   `Editor` stopped reaching into its fields to decide anything itself —
   then, since it turned out to have zero dependency on `Editor`'s own
   state (only `lspclient`/`types`), moved it to its own package,
-  `internal/lspservice` (type renamed `Service` to avoid the
+  `internal/lang/lspservice` (type renamed `Service` to avoid the
   `lspservice.LspService` stutter, fields dropped their `Lsp` prefix
   accordingly — `Server`/`Language`/`Version`/`URI`/`Capabilities`/
   `CompletionGeneration`). Verified against a real, live `gopls` (not just
@@ -67,15 +67,28 @@ theme, not urgency — none of these block anything:
   leaf package, same shape `types` already has. `types` is back to pure
   enums.
 - ~~**Bracket/quote auto-pairing's decision logic is a real, standalone
-  algorithm currently living inline in `Editor`**~~ **Done 2026-09-25** —
-  extracted to `internal/autopairs` as a pure function (`Decide(typed,
-  before, after rune) (Action, rune)`) taking just the three runes
-  involved, no buffer or `Editor` needed. `Editor` kept as the thin
-  imperative shell that reads the runes around the cursor and acts on the
-  decision. The multi-edit apply-in-reverse-order algorithm
-  (`applyTextEditsLocked`, `internal/editor/lspfeatures.go`) is still
-  open — same reasoning applies, just not done yet.
-- **`IndentStringAt`'s tab-formatting belongs in `internal/syntax`, not
+  algorithm currently living inline in `Editor`**~~ **Done 2026-09-25**,
+  **folded into `internal/interpreter` 2026-10-31** — extracted first as
+  its own `internal/autopairs` package (a pure function, `Decide(typed,
+  before, after rune) (Action, rune)`, no buffer or `Editor` needed), then
+  re-audited once this project started actually checking package/importer
+  counts rather than assuming: exactly one caller
+  (`internal/interpreter/insert.go`), zero package-level state — the
+  textbook "fold back in" case per CLAUDE.md's own minimal-primitives
+  test. Now lives as `internal/core/interpreter/autopairs.go` (same
+  package), still just as pure. ~~The multi-edit apply-in-reverse-order
+  algorithm (`applyTextEditsLocked`, `internal/core/editor/lspfeatures.go`)
+  is still
+  open — same reasoning applies, just not done yet.~~ **Done differently,
+  2026-10-31** — not extracted as a standalone algorithm as this entry
+  originally planned; routed through the real Action/Executor pipeline
+  instead (`types.ActionApplyEdits`/`interpreter.ApplyEditsAction`/
+  `offset.Replacement`), since that's the shape `DESIGN_KEY_PIPELINE.md`
+  had already separately predicted for exactly this case and this entry's
+  own plan was never reconciled with. See
+  `DESIGN_PACKAGE_STRUCTURE.md`'s Part 2 for the full reasoning and the
+  new sync/async dividing line this surfaced.
+- **`IndentStringAt`'s tab-formatting belongs in `internal/lang/syntax`, not
   `Editor`** — `Editor.indentStringAtLocked` asks the highlighter for a
   depth (fine, that's orchestration) but then also decides *how* to render
   it (`strings.Repeat("\t", depth)`, a formatting policy). Give
@@ -85,7 +98,7 @@ theme, not urgency — none of these block anything:
 **File organization** (no logic changes, just moving code to where its name says it should be):
 - Pull file-related `Editor` methods (`NewEditorFromFile`, `OpenFile`,
   `SaveFile`, `SaveFileAs`, `GetFilePath`, `Language()`) out of `editor.go`
-  into their own `internal/editor/file.go` — mirrors the split
+  into their own `internal/core/editor/file.go` — mirrors the split
   `piecetable` already has (table/reader/writer/file).
 - Move `MoveCursorLeft`/`Right`/`Up`/`Down` (and their `*Locked` bodies) out
   of `editor.go` into `cursor.go` — `cursor.go` today only holds the
@@ -102,27 +115,55 @@ theme, not urgency — none of these block anything:
 **A real missing package, mirroring one that already exists:**
 - ~~**Command-mode (`:...`) parsing deserves its own package, the same way
   Normal-mode keystrokes got `internal/keyengine`**~~ **Done 2026-09-25** —
-  `internal/exmode.Parse(raw string) Command{Name, Args}` now owns parsing
+  `internal/core/exmode.Parse(raw string) Command{Name, Args}` now owns parsing
   only, the same "resolve, never act" discipline `keyengine` already
-  follows. `executeCommandLocked` (`internal/editor/editor.go`) still owns
-  all 9 cases' actual dispatch logic — that part correctly stays in
-  `Editor`, since every case needs its own state (`e.table`, `e.mu`, the
-  LSP methods) directly.
+  follows. `executeCommandLocked` (`internal/core/editor/editor.go`)
+  still owns every case's actual dispatch logic as one `switch cmd.Name` —
+  **this entry's own claim that that "correctly stays in `Editor`, full
+  stop" was itself wrong, caught 2026-10-31**: `DESIGN_KEY_PIPELINE.md`,
+  written about two weeks after this entry, proved the identical
+  objection false for Normal mode's own dispatch (a package *can* get
+  exactly the state access a case needs via a narrow interface, without
+  living inside `Editor` — `internal/core/executor` already does this for
+  every Normal/Insert-mode Action) and named `:s///` by name as the
+  Command-mode case that would eventually move out that way. Nobody
+  reconciled the two claims until this was traced down as a live
+  contradiction between two documents — see
+  `DESIGN_PACKAGE_STRUCTURE.md`'s Part 2 for the full writeup.
+
+  What actually happened once this was resolved for real: the distinction
+  was never "Command mode vs. Normal mode" at all — it's whether a case's
+  effect is **synchronous** (completes within one call) or **async**
+  (kicks off work that finishes later on another goroutine, the way
+  `runAsync`/`asyncApply` already exists specifically to handle).
+  `:s///`'s actual edit application now goes through the real Action/
+  Executor pipeline (`types.ActionApplyEdits`), exactly as predicted. What
+  stays a plain `executeCommandLocked` switch, and correctly so, not by
+  oversight: `:w`/`:q`/`:e`/`:set` (synchronous, but genuinely one-shot
+  side effects with no resolve-then-apply split worth decoupling — no
+  second producer would ever construct an `ActionWrite`/`ActionQuit`
+  value, the exact "exactly one caller, forever" tell this project's own
+  minimal-primitives test already names as the *wrong* reason to split
+  something out) and `:LspInstall`/`:LspUninstall`/`:Format`'s own async
+  kickoff (genuinely can't fit `Dispatch`'s synchronous-completion
+  contract without a different, explicitly-async Action shape nothing
+  here needs yet).
 
 **Resolved since the last pass (2026-09-13), removed from this list**: the
 undo/redo model decision (settled — symmetric redo stack on
 `piecetable.Table`, see `writer.go`'s `Undo`/`Redo`); `:q`'s missing dirty
 guard (added — `Table.Dirty`, `:q!` force-quits); `internal/editor/keymap`
-(deleted entirely, replaced by `internal/keyengine`); `internal/editor/
-interfaces.go`'s orphaned `Document` (deleted); the `Around` modifier and
-`LineMotion` noun missing table entries (both real now, in
-`internal/keyengine/normal_mode.go`). `RuneMotion` stays deliberately
+(deleted entirely, replaced by what's now `internal/core/keyengine`);
+`internal/editor/interfaces.go`'s orphaned `Document` (deleted); the
+`Around` modifier and `LineMotion` noun missing table entries (both real
+now, in `internal/core/keyengine/normal_mode.go`). `RuneMotion` stays
+deliberately
 unregistered — it's for a future `x` keybinding, not in the agreed 14-case
 list, not a gap.
 
 ## Deferred performance (viewport-scoping changes the calculus here)
 
-- **`piecetable.FindPieceAt` is an O(P) linear scan** (`internal/piecetable/reader.go`)
+- **`piecetable.FindPieceAt` is an O(P) linear scan** (`internal/document/piecetable/reader.go`)
   with no index/tree over pieces. Deferred: once viewport slicing exists,
   this scales with piece count from editing activity, not file size — for a
   single-file MVP session, piece count should stay small enough that this
@@ -132,7 +173,7 @@ list, not a gap.
   `Insert`/`Delete` pushes a full snapshot forever, no cap or eviction.
   Revisit once real session lengths are known; a simple depth cap or
   coalescing strategy would fix it.
-- **`internal/viewmanager/virtual_grid.go`'s `GetScreenPosition` is a no-op**
+- **`internal/presentation/viewmanager/virtual_grid.go`'s `GetScreenPosition` is a no-op**
   — no scroll offsets, line wrapping, tab expansion, or gutter width yet.
   Needed for real files with tabs/long lines; not needed for a minimal
   plain-text MVP.
@@ -160,12 +201,12 @@ list, not a gap.
 
 ## API/interface cleanup (cheap, no urgency)
 
-- **`internal/offset/motions.go`'s `ScanUntil` is dead code** — nothing
+- **`internal/document/offset/motions.go`'s `ScanUntil` is dead code** — nothing
   calls it, has the same byte-stepping bug `FindOffset` used to have, looks
   like an abandoned attempt to simplify/replace `FindOffset` that never got
   finished. Not yet decided whether to delete it or complete the
   replacement.
-- ~~**`internal/keyengine/visual_mode.go`** is still the original
+- ~~**`internal/core/keyengine/visual_mode.go`** is still the original
   copy-paste placeholder~~ **Scoped 2026-10-18** — real design work is
   done (operators act directly on the current selection, no following
   noun, a genuinely different shape from Normal's verb+noun grammar);

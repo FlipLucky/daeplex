@@ -1382,8 +1382,37 @@ gets picked up as real work.
 
 ## Architecture / package map
 
+`internal/` is grouped into five semantic buckets (settled 2026-10-31,
+see `DESIGN_PACKAGE_STRUCTURE.md` for the full taxonomy conversation and
+discrepancy audit) rather than one flat 21-package directory — a directory
+listing should tell you how the app is shaped, not just satisfy Go's
+`internal/` visibility convention. The grouping is purely for human
+navigability: Go doesn't nest packages or care about folder depth, and
+every dependency/cycle-risk rule below is still governed entirely by
+imports, unaffected by which bucket a package sits in.
+
+- **`internal/core/`** — the key-handling pipeline plus the state it acts
+  on: `editor`, `keyengine`, `interpreter`, `executor`, `exmode`,
+  `clipboard-register`, `workspace`. Flat siblings by explicit choice —
+  `clipboard-register`/`workspace` lean toward this bucket by import
+  topology but weren't forced into a further subgroup; that can happen
+  later if a real common denominator shows up.
+- **`internal/document/`** — `piecetable`, `offset`. Storage/text-structure
+  math, zero dependency on anything above it.
+- **`internal/presentation/`** — `viewmanager`, `splitview`. Screen/viewport
+  mapping.
+- **`internal/lang/`** — `syntax`, `langdetect`, `lspclient`, `lspmanager`,
+  `lspservice`. Everything language-analysis-related (treesitter + LSP).
+- **`internal/frontend/`** — `gui-base`, `tui-base`, `splash`.
+- **`internal/types`** stays flat, un-nested — the shared kernel every
+  other package imports (44 importers), importing nothing back.
+- **`platform/`** stays a top-level peer of `internal/`, not folded into
+  `lang/` — it's OS/arch-specific (cache/config dirs, GOOS/GOARCH→mason
+  target mapping), not language-analysis logic; today's importers happen
+  to be LSP-adjacent, but that's incidental, not definitional.
+
 ```
-cmd/gui, cmd/tui  →  gui-base / tui-base  →  workspace  →  editor  →  keyengine, offset, piecetable, viewmanager
+cmd/gui, cmd/tui  →  gui-base / tui-base  →  workspace  →  editor  →  keyengine, interpreter, executor, offset, piecetable, viewmanager
 cmd/api           →  piecetable (see Known issues — cmd/api's role is undetermined but no longer broken)
 ```
 
@@ -1400,7 +1429,7 @@ can end up in a dependency cycle with `editor` or with each other.
   harness for exercising the core engine directly (see Known issues). Its
   long-term role is undetermined but may become an extensibility/scripting
   entry point (see Vision & direction).
-- **`internal/piecetable`** — the core text data structure: `Table` holds
+- **`internal/document/piecetable`** — the core text data structure: `Table` holds
   `Master`/`Add` byte buffers plus a `Pieces` list; `Insert`/`Delete`
   mutate it, `Coalesce` merges adjacent same-buffer pieces. `Undo`/`Redo`
   are snapshot-based (each unexported `historyEntry` restores a full
@@ -1412,7 +1441,7 @@ can end up in a dependency cycle with `editor` or with each other.
   (`NewPieceTableFromFile`, `Save`, `SaveAs`). This is a mutex-protected
   rewrite of the older, now-deleted `internal/piecestore` package
   (`Store` → `Table`).
-- **`internal/editor`** — the orchestrator: `Editor` wraps a
+- **`internal/core/editor`** — the orchestrator: `Editor` wraps a
   `*piecetable.Table`, a `*viewmanager.VirtualGrid`, a local `*Cursor`
   (`cursor.go` — position/mode/command-buffer; moved here from
   `viewmanager` since it's editor state, not view state), and a
@@ -1429,11 +1458,11 @@ can end up in a dependency cycle with `editor` or with each other.
   `shouldPairQuoteHere`, a heuristic that only pairs when neither
   neighboring character is a word character, so typing a contraction like
   `don't` doesn't trigger an unwanted pair on the apostrophe) and
-  tree-based auto-indent on `<Enter>` (see `internal/syntax` below).
+  tree-based auto-indent on `<Enter>` (see `internal/lang/syntax` below).
   Normal (and eventually Visual) mode hands the
   key to `keyengine.CommandContext.ProcessCommand`, and once a sequence
   resolves, `interpreter.ProcessNormal` resolves it into one or more
-  `Action`s (offset/range math via `internal/offset`) which
+  `Action`s (offset/range math via `internal/document/offset`) which
   `executor.Dispatch` applies via `piecetable`/`Editor` — see the
   Validator → Processor → Executor entry below. Also handles file I/O,
   vim-style command mode
@@ -1457,10 +1486,10 @@ can end up in a dependency cycle with `editor` or with each other.
   segment. Verified end-to-end, not just unit-tested: a real
   `:LspInstall go` through a live `Editor` genuinely installs `gopls` and
   `StatusMessage()` reports the real result once the background goroutine
-  finishes (`internal/editor/lspcommands_test.go`'s
+  finishes (`internal/core/editor/lspcommands_test.go`'s
   `TestLspInstallGoRealEndToEndThroughEditor`, gated behind
   `LSPMANAGER_INTEGRATION=1`).
-- **`internal/keyengine`** — parses vim-style keystroke sequences into a
+- **`internal/core/keyengine`** — parses vim-style keystroke sequences into a
   resolved `ExecutableCommand{Count, Verb, Modifier, Noun}`. Zero
   dependency on `piecetable`, `offset`, or `Editor` — keystrokes in, a
   command (or an `ErrInconsistentKeymap` error) out. Split across
@@ -1477,6 +1506,34 @@ can end up in a dependency cycle with `editor` or with each other.
   — see Known issues history), `u`/`<C-r>`/`r` (editor-level commands),
   `:`/`i`/`o`/`O` (mode switches / line-opening).
   This replaced `internal/editor/keymap` (deleted 2026-09-13) entirely.
+- **`internal/core/interpreter`** — Processor in the Validator → Processor →
+  Executor pipeline (see the entry below and `docs/concepts/validator-
+  processor-executor.md`): resolves an already-validated keystroke/sequence
+  into one or more `Action`s. `normal.go` holds Normal mode's resolvers
+  (`resolveMotion`/`resolveRange`/`ResolveVisualRange`/etc.), `insert.go`
+  folds Validator+Processor into one function for Insert mode (close to a
+  no-op grammar), and `autopairs.go` is the bracket/quote auto-pairing
+  decision logic, folded into this package 2026-10-31 (see
+  `DESIGN_PACKAGE_STRUCTURE.md`) once an importer audit confirmed it had
+  exactly one caller and no package-level state of its own.
+- **`internal/core/executor`** — Executor: a dispatch table keyed by
+  `types.ActionKind`, applying an already-resolved `Action` via a narrow
+  `Editor` interface. Never imports `interpreter` — an `Action`'s producer
+  is irrelevant to it, only its shape is (see `docs/concepts/decoupled-by-
+  shape.md`).
+- **`internal/core/exmode`** — Command-mode (`:...`) parsing only,
+  `Parse(raw string) Command{Name, Args}`, the same "resolve, never act"
+  discipline `keyengine` follows. `executeCommandLocked`
+  (`internal/core/editor/editor.go`) still owns dispatch for every
+  synchronous, one-shot command (`:w`/`:q`/`:e`/`:set`); `:s///`'s actual
+  edit application now goes through Executor instead (`types.
+  ActionApplyEdits`) — see `BACKLOG.md`'s "real missing package" entry for
+  the full reasoning on why that split is sync/async, not Command-mode-
+  vs-Normal-mode.
+- **`internal/core/clipboard-register`** — the named/category register
+  store backing `y`/`d`/`c`/`p`/`P` and `"{letter}` named registers,
+  shared workspace-wide (not per-buffer, see T57) via getter/setter pairs
+  on `Editor` rather than a singleton.
 - **`internal/types`** — the shared kernel: small, dependency-free enums
   every other package agrees on, imported freely but never importing
   anything else in the module itself. `Mode` (Normal/Insert/Visual/
@@ -1490,7 +1547,7 @@ can end up in a dependency cycle with `editor` or with each other.
   for a future syntax analyzer (or LSP client) to know which
   grammar/languageId to use; this was the last treesitter-blocking gap
   from the 2026-09-19 architecture review (see Roadmap history).
-- **`internal/offset`** — text-position/structure math, with zero
+- **`internal/document/offset`** — text-position/structure math, with zero
   dependency on anything else in the module (usable by cursor movement,
   the key engine's resolvers, or anything else that ever needs "where does
   this word/paragraph start and end," e.g. a future double-click-to-select
@@ -1502,7 +1559,7 @@ can end up in a dependency cycle with `editor` or with each other.
   `RangeInnerWord`/`AroundWord`/`Paragraph`, `RangeLine`,
   `MotionFindCharForward`). `ScanUntil` is still dead code (see Known
   issues, unchanged).
-- **`internal/viewmanager`** — screen/viewport mapping, nothing else
+- **`internal/presentation/viewmanager`** — screen/viewport mapping, nothing else
   (slimmed 2026-09-13 — `Cursor` moved to `editor`, position math and
   motion resolvers moved to `offset`). `VirtualGrid`/`GetScreenPosition`
   (per-position mapping — currently a no-op passthrough, see Known issues)
@@ -1527,9 +1584,9 @@ can end up in a dependency cycle with `editor` or with each other.
   runes per `StyleAt`, falling back to the cheap plain-text path when a
   line has none (identical output to before `StyledSpan` existed,
   verified by tests). `Editor.StyleSpans` now returns real spans for every
-  curated `types.Language` — see `internal/syntax` below, the first real
-  producer.
-- **`internal/syntax`** — real syntax highlighting, added 2026-09-19.
+  curated `types.Language` — see `internal/lang/syntax` below, the first
+  real producer.
+- **`internal/lang/syntax`** — real syntax highlighting, added 2026-09-19.
   Wraps `github.com/odvcencio/gotreesitter` (a pure-Go tree-sitter
   runtime — no cgo anywhere, works on every platform including WASM;
   chosen deliberately over the canonical C library specifically to avoid
@@ -1574,10 +1631,10 @@ can end up in a dependency cycle with `editor` or with each other.
   support (no missing external-scanner gaps), correct real parses
   (including TSX's notoriously ambiguous JSX-in-TypeScript grammar), a
   working `GOOS=js GOARCH=wasm` build, and real subset-tag binary-size
-  reduction — see `internal/syntax/syntax_test.go`'s
+  reduction — see `internal/lang/syntax/syntax_test.go`'s
   `TestGrammarNameCoversEveryCuratedLanguage` for the same guarantee kept
   honest in CI.
-- **`internal/workspace`** — the outer "current buffer" selector (T56,
+- **`internal/core/workspace`** — the outer "current buffer" selector (T56,
   2026-10-18), sitting between the frontends and `editor`: `Workspace`
   holds `[]*editor.Editor` (one fully independent Editor per open file,
   unchanged) plus which one is current. `HandleKey` is the one new seam —
@@ -1590,7 +1647,7 @@ can end up in a dependency cycle with `editor` or with each other.
   redraw loop selects on alongside `Current().ChangeChan()`, needed
   because switching buffers changes which Editor's own channel is the
   live one.
-- **`internal/gui-base`**, **`internal/tui-base`** — thin, single-file
+- **`internal/frontend/gui-base`**, **`internal/frontend/tui-base`** — thin, single-file
   (`base.go`) front ends, one per toolkit. Both hold a `*workspace.Workspace`
   (switched from a bare `*editor.Editor` in T56, 2026-10-18 — every
   per-buffer accessor now goes through a `cur := ws.Current()` fetched
@@ -1620,7 +1677,7 @@ can end up in a dependency cycle with `editor` or with each other.
   Known issues item 2) instead of full-buffer `GetText()` +
   `strings.Split` every frame. Both
   now also color runes per `Editor.StyleSpans` (currently always empty —
-  see `internal/viewmanager`'s `style.go` entry above), each frontend
+  see `internal/presentation/viewmanager`'s `style.go` entry above), each frontend
   owning its own `Style` → color mapping (`gui-base`'s `styleColor`,
   `tui-base`'s `tviewStyleTag`). Both also render a wildmenu-style
   completion popup for `:e`/`:w` path
@@ -1656,12 +1713,12 @@ can end up in a dependency cycle with `editor` or with each other.
   arch-specific concerns nothing else owned. `paths.go`'s `CacheDir`/
   `ConfigDir` (both `os.UserCacheDir`/`os.UserConfigDir`-backed) are the
   first config/cache-directory convention this codebase has ever had — used
-  today by `internal/lspmanager` for installed language servers, reusable
+  today by `internal/lang/lspmanager` for installed language servers, reusable
   later for settings/plugin state. `arch.go`'s `MasonTargetCandidates`/
   `CurrentTargets` map Go's `GOOS`/`GOARCH` onto mason-registry's own target
   vocabulary (`linux_x64_gnu`, `darwin_arm64`, etc.), most-specific-first,
   with a best-effort musl-vs-glibc detection on Linux.
-- **`internal/lspmanager`** — a real, working language-server installer
+- **`internal/lang/lspmanager`** — a real, working language-server installer
   (added 2026-09-20, Part 1 of the LSP integration plan), consuming
   `mason-registry`'s live published data
   (`github.com/mason-org/mason-registry`) rather than a hand-rolled
@@ -1694,7 +1751,7 @@ can end up in a dependency cycle with `editor` or with each other.
   and real toolchains, not just unit-tested: real `gopls`, a real npm-
   installed `yaml-language-server`, and a real downloaded-and-extracted
   `marksman` binary were each installed for real and made to run
-  (`internal/lspmanager`'s `*_integration_test.go` files, gated behind
+  (`internal/lang/lspmanager`'s `*_integration_test.go` files, gated behind
   `LSPMANAGER_INTEGRATION=1` so normal `go test ./...` stays network-free).
   One real bug this caught before it shipped: `marksman`'s actual
   per-target asset objects carry no `bin` field at all (only
