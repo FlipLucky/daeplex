@@ -62,6 +62,46 @@ func previewScrollOffset(target, margin int) int {
 	return offset
 }
 
+// visualRowLineMap converts mdrender.ToTviewTags' own LineMap — whose
+// RenderedLine counts raw "\n" characters in the generated tag string —
+// into one whose RenderedLine instead counts real on-screen rows after
+// word-wrap, the unit TextView.ScrollTo actually addresses. Found live:
+// without this, a long rendered prose line that wraps into 2-3 screen
+// rows still counted as exactly 1, so the preview and the source pane
+// scrolled at different, content-dependent paces ("the markdown file
+// needs to scroll at a different pace than the code pane"). Uses
+// tview.WordWrap directly — the same algorithm TextView's own internal
+// reindex pass uses for real wrapping (ignoring style-tag width), not an
+// approximation of it — so this matches exactly, not just closely.
+// width <= 0 (before the pane's first real draw) returns logical
+// unchanged rather than wrapping against a meaningless width.
+func visualRowLineMap(rendered string, logical mdrender.LineMap, width int) mdrender.LineMap {
+	if width <= 0 {
+		return logical
+	}
+	lines := strings.Split(rendered, "\n")
+	rowStart := make([]int, len(lines)+1)
+	for i, line := range lines {
+		rows := len(tview.WordWrap(line, width))
+		if rows == 0 {
+			rows = 1 // an empty line still occupies exactly one visual row
+		}
+		rowStart[i+1] = rowStart[i] + rows
+	}
+	visual := make(mdrender.LineMap, len(logical))
+	for i, p := range logical {
+		line := p.RenderedLine
+		if line < 0 {
+			line = 0
+		}
+		if line >= len(rowStart) {
+			line = len(rowStart) - 1
+		}
+		visual[i] = mdrender.LinePoint{SourceLine: p.SourceLine, RenderedLine: rowStart[line]}
+	}
+	return visual
+}
+
 func completionWindow(candidates []string, index, maxRows int) ([]string, int) {
 	if len(candidates) <= maxRows {
 		return candidates, index
@@ -374,15 +414,33 @@ func Boot(ws *workspace.Workspace) error {
 	previewView.SetTextColor(editorFg)
 	var previewActive bool
 	var lastPreviewSource string
-	// previewLineMap is scroll-sync's own state (not splitview's/Workspace's
-	// business — see previewView's own doc comment above): the preview
-	// pane auto-scrolls to track wherever the cursor is in the source,
-	// rather than needing its own independent scroll/focus, so there's
-	// never a "how do I get into the preview pane to scroll it" question
-	// to answer. Recomputed alongside the rendered text, in the same
-	// content-change-gated branch below — stale otherwise, which is fine,
-	// since it's never read except right after that same recompute.
-	var previewLineMap mdrender.LineMap
+	// lastPreviewWidth is the previewView width previewVisualLineMap was
+	// last built for — a terminal resize changes real word-wrap, which
+	// changes the correct source-line-to-visual-row correspondence even
+	// when the markdown source itself hasn't changed, so this gates a
+	// rebuild independently of lastPreviewSource rather than only on it.
+	var lastPreviewWidth int
+	// previewVisualLineMap is scroll-sync's own state (not splitview's/
+	// Workspace's business — see previewView's own doc comment above): the
+	// preview pane auto-scrolls to track wherever the cursor is in the
+	// source, rather than needing its own independent scroll/focus, so
+	// there's never a "how do I get into the preview pane to scroll it"
+	// question to answer. This is deliberately not mdrender.ToTviewTags'
+	// own LineMap directly — that one counts raw "\n" characters in the
+	// generated tag string, but TextView.ScrollTo addresses real
+	// word-wrapped visual rows (its own internal lineIndex), and a long
+	// rendered prose line wrapping into 2-3 screen rows would otherwise
+	// count as exactly 1, a real pace mismatch found live ("the markdown
+	// file needs to scroll at a different pace than the code pane").
+	// previewVisualRowLineMap below corrects for this once, right after
+	// each (re)render, converting the raw map's logical line numbers into
+	// real visual rows via tview's own WordWrap (same algorithm the
+	// widget's internal reindex pass uses, not an approximation of it).
+	// Recomputed alongside the rendered text, in the same
+	// content-change/width-change-gated branch below — stale otherwise,
+	// which is fine, since it's never read except right after that same
+	// recompute.
+	var previewVisualLineMap mdrender.LineMap
 
 	panesFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
@@ -499,7 +557,7 @@ func Boot(ws *workspace.Workspace) error {
 		// Scroll-sync (not a focus-switchable pane of its own — see
 		// previewView's doc comment): every render, regardless of
 		// whether a reparse happened, the preview scrolls to keep the
-		// rendered line LineMap.ScrollTarget says corresponds to the
+		// real visual row previewVisualLineMap says corresponds to the
 		// cursor's current source line on screen — previewScrollOffset,
 		// unconditionally recomputed, the same shape the main pane's own
 		// scrollRow := cursorRow - cursorTopPadding uses a few lines up
@@ -512,22 +570,24 @@ func Boot(ws *workspace.Workspace) error {
 			if cur.Language() != types.LanguageMarkdown {
 				previewView.SetText("[#6a6a6e](not a markdown buffer)[-:-:-]")
 				lastPreviewSource = ""
-				previewLineMap = nil
+				previewVisualLineMap = nil
 			} else {
-				if src := cur.GetText(); src != lastPreviewSource {
+				_, _, previewWidth, _ := previewView.GetInnerRect()
+				if src := cur.GetText(); src != lastPreviewSource || previewWidth != lastPreviewWidth {
 					rendered, lineMap := mdrender.ToTviewTags([]byte(src))
 					previewView.SetText(rendered)
 					lastPreviewSource = src
-					previewLineMap = lineMap
+					lastPreviewWidth = previewWidth
+					previewVisualLineMap = visualRowLineMap(rendered, lineMap, previewWidth)
 				}
-				target := previewLineMap.ScrollTarget(cursor.Row)
+				target := previewVisualLineMap.ScrollTarget(cursor.Row)
 				previewView.ScrollTo(previewScrollOffset(target, cursorTopPadding), 0)
 			}
 			panesFlex.ResizeItem(previewView, 0, 1)
 		} else {
 			panesFlex.ResizeItem(previewView, 0, 0)
 			lastPreviewSource = ""
-			previewLineMap = nil
+			previewVisualLineMap = nil
 		}
 
 		cursorScreenRow = focusedScreenRow

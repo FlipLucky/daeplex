@@ -1481,6 +1481,82 @@ started, not holding flat for several steps and then lurching forward —
 confirmed by capturing the preview's top line after each of 16 individual
 `j` presses via `tmux`.
 
+**Found "scrolling at a different pace than the code pane" right after
+that, fixed the same day** — a real structural gap, not a tuning issue:
+`LineMap.RenderedLine` counts raw `"\n"` characters in the generated tag
+string, but `TextView.ScrollTo` addresses real word-wrapped visual rows
+(its own internal `lineIndex`, built by splitting long lines further at
+the pane's actual width) — a long rendered prose line wrapping into 2-3
+screen rows still counted as exactly 1, so the two panes drifted out of
+proportion the wider a block's lines actually were, worse in a narrower
+terminal. Fixed with a new `visualRowLineMap` in `tui-base` (not in
+`mdrender` — wrap-row semantics are real-screen-specific, so this stays
+`tui-base`'s own concern, same "shared parser, each frontend owns its
+semantics" split the package already follows): converts the logical
+`LineMap`'s points into real visual-row units using `tview.WordWrap`
+directly — the *same* algorithm `TextView`'s own internal reindex pass
+uses (confirmed by reading its source, not assumed), not an approximation
+of it. Recomputed in the same content-change-gated branch, plus
+independently whenever the pane's width changes (a terminal resize
+changes real wrapping even with unchanged content) via a new
+`lastPreviewWidth` guard. `mdrender.LineMap`'s own exported
+`ScrollTarget` interpolation is reused unchanged on this converted
+map — no new interpolation logic needed, since `LineMap`/`ScrollTarget`
+turned out to generalize cleanly to any two-axis line correspondence, not
+just the logical one it was first built for. Verified via four new
+`visualRowLineMap` tests (unwrapped lines pass through unchanged, a
+wrapped line pushes every later point past its raw line count, an empty
+line still counts as one row, width<=0 before first layout falls back to
+the logical map unchanged) and live against the real tagged `dp` binary
+at a narrow 100-column terminal width (forcing heavy wrapping on the
+15-line-paragraph test file): the preview advanced through
+`Line 6 → Line 13` of the wrapped paragraph in lockstep with 13
+individual `j` presses, matching pace rather than racing ahead or lagging
+behind.
+
+**A real, measured scale gap surfaced immediately after, raised directly
+by the user** against this project's own standing "smooth and light, even
+on huge files" pillar ("if the editor runs smooth, but a markdown preview
+pane wouldn't, that would really put a huge dent in the feel of it") —
+not about the preview's correctness, which is now solid, but about
+whether it's actually *bounded* in cost the way every other renderer in
+this codebase is (`ViewportSlice`, `Highlighter.Spans`' own O(log n + k)
+fix from 2026-09-21). It isn't, and this was measured, not assumed, per
+this project's own established discipline: a throwaway benchmark against
+realistic generated markdown (short heading + paragraph sections,
+repeated) showed goldmark parse+walk and the new word-wrap pass both
+scale *linearly with total document size*, since both process the whole
+document on every content change, not just the visible window —
+1MB: ~90ms parse + ~384ms wrap; 10MB: ~434ms + ~3.1s; 50MB: ~2.1s +
+~15.3s; 200MB: ~8.4s + ~58.9s (wrap-pass dominates, since it's a
+pure-Go line-by-line pass over the *rendered* output, several times
+larger than the source). Since the content-change guard fires on every
+real edit (not just file-open), this means typing a single character
+into a multi-megabyte markdown file with `:MdPreview` active would freeze
+the UI for the full parse+wrap duration on every keystroke that edits
+text — a real, severe regression against this project's own stated
+performance pillar, not a hypothetical "huge log file" edge case (log
+files aren't markdown and never trigger this path at all — the real risk
+is any sizable *.md* file). Logged as `BACKLOG.md`'s new
+"Markdown preview isn't viewport-scoped" entry with these numbers rather
+than fixed in this pass: making it genuinely viewport-bounded (only
+parsing/wrapping the window actually on screen, incrementally
+re-anchoring as the cursor moves) is a real redesign on the order of the
+syntax highlighter's own incremental-tree work, not a quick patch, and
+deserves its own design conversation rather than a rushed bolt-on here.
+
+Also landed the same day, directly from the user's "can we also add
+benchmarking tests, or at least benchmark from time to time" ask: real
+Go `Benchmark*` functions (idiomatic `testing.B`, matching the existing
+`BenchmarkSpansOnLargeDocument` precedent in `internal/lang/syntax` from
+2026-09-21 — this wasn't a new practice, just one that hadn't been
+extended to `mdrender` yet) plus a new `task bench` Taskfile target
+(`go test -bench=. -benchmem -run=^$ ./...` — the `-run=^$` is
+deliberate: it skips every `Test`, running only benchmarks, so `task
+bench` never doubles as a slow way to run the real suite) so checking
+performance stays a one-command, repeatable habit instead of a one-off
+diagnostic script like the throwaway one that produced the numbers above.
+
 A real, separate gap found live in the same testing pass, unrelated to
 preview work: `<C-d>`/`<C-u>` (half-page scroll) are missing from
 `internal/core/keyengine` entirely — not wired at all, not even an

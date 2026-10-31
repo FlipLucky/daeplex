@@ -177,6 +177,31 @@ list, not a gap.
   — no scroll offsets, line wrapping, tab expansion, or gutter width yet.
   Needed for real files with tabs/long lines; not needed for a minimal
   plain-text MVP.
+- **Markdown preview isn't viewport-scoped** (`internal/lang/mdrender`,
+  `tui-base`'s `:MdPreview` pane, 2026-10-31) — unlike every other
+  renderer in this codebase (`ViewportSlice`, `Highlighter.Spans`' own
+  O(log n + k) fix from 2026-09-21), `mdrender.ToTviewTags`' goldmark
+  parse+walk and `tui-base`'s wrap-aware `visualRowLineMap` conversion
+  both process the *whole* document on every content change, scaling
+  linearly with total document size, not with what's actually on screen.
+  Measured, not assumed, via a throwaway benchmark against realistic
+  generated markdown: 1MB → ~90ms parse + ~384ms wrap; 10MB → ~434ms +
+  ~3.1s; 50MB → ~2.1s + ~15.3s; 200MB → ~8.4s + ~58.9s (the wrap pass
+  dominates — it's a line-by-line pass over the *rendered* output, several
+  times larger than the source). Since the content-change guard fires on
+  every real edit, typing into a multi-megabyte markdown file with the
+  preview active would freeze on every edit for the full parse+wrap
+  duration — a real regression against this project's "smooth and light,
+  even on huge files" pillar (raised directly by the user, not
+  hypothetical — markdown files specifically, not just huge log files in
+  general). Deliberately not fixed here: making this genuinely
+  viewport-bounded (parsing/wrapping only the window on screen,
+  incrementally re-anchoring as the cursor moves) is a real redesign on
+  the order of the syntax highlighter's own incremental-tree work, not a
+  quick patch — deserves its own design conversation before being built.
+  `internal/lang/mdrender/bench_test.go`'s `BenchmarkToTviewTagsOnLargeDocument`
+  (run via `task bench`) keeps these numbers checkable without re-deriving
+  them from scratch next time this comes up.
 
 ## Correctness/robustness (latent — not currently triggered, but real)
 

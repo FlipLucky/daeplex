@@ -31,6 +31,14 @@ tasks:
     cmds:
       - go test -v ./...
 
+  bench:
+    desc: >-
+      Run every Benchmark* function (-run=^$ skips all Tests, so this never
+      doubles as a slow way to run the real suite). Pass a package/name
+      filter after `--`, e.g. task bench -- ./internal/lang/mdrender/... .
+    cmds:
+      - go test -bench=. -benchmem -run=^$ {{.CLI_ARGS | default "./..."}}
+
   coverage:
     desc: Run tests with a per-package coverage summary
     cmds:
