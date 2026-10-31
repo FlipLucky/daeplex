@@ -130,8 +130,16 @@ func (e *Editor) startLSPAsyncLocked(lang types.Language, entry lspmanager.Entry
 			}
 		})
 
-		caps, err := server.Initialize("file://" + filepath.Dir(filePath))
+		caps, err := server.Initialize("file://" + filepath.Dir(absoluteOrSelf(filePath)))
 		if err != nil {
+			// server was already successfully spawned (Start succeeded) —
+			// a failed Initialize still leaves behind a real subprocess
+			// (dead or alive) that nothing else will ever reap otherwise,
+			// a real zombie-process leak confirmed live via `ps` while
+			// diagnosing the rootURI bug above. Stop() is safe to call even
+			// when the process has already exited (shutdown/exit just fail
+			// silently on the closed connection; Wait() still reaps it).
+			go func() { _ = server.Stop() }()
 			return func(ed *Editor) {
 				ed.setStatusMessageLocked(fmt.Sprintf("%s failed to initialize: %v", displayPackageName(entry), err))
 			}
@@ -184,6 +192,28 @@ func resolveLSPBinary(entry lspmanager.Entry) (string, error) {
 		return "", fmt.Errorf("not installed (:LspInstall %s to add one)", strings.ToLower(entry.PackageName))
 	}
 	return rec.BinPath, nil
+}
+
+// absoluteOrSelf resolves path to an absolute one for the LSP rootUri
+// below, falling back to path itself on the rare failure (only possible if
+// os.Getwd() itself fails). A real, found-live bug: Editor.FilePath is
+// stored exactly as the caller opened it — almost always a relative path
+// in practice (`dp file.md`, `task tui -- file.md`) — and `"file://" +
+// filepath.Dir(filePath)` on a relative "./README.md" produces the
+// malformed URI "file://." (a `file://` URI is spec-required to be
+// absolute). gopls tolerated this; marksman does not — it spawns, then
+// exits immediately on receiving it, surfacing as "lspclient: connection
+// closed while waiting for initialize response" with no hint of the real
+// cause, since lspclient.Start discards the crashed process's stderr.
+// Confirmed via a minimal repro against the real marksman binary before
+// fixing: the exact same Initialize call succeeds once rootURI is made
+// absolute, fails identically (same error text) when it isn't.
+func absoluteOrSelf(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
 }
 
 // watchLSPDiagnostics runs for server's whole lifetime, feeding each

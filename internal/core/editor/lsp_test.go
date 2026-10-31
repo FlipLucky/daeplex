@@ -496,3 +496,98 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool, failMsg stri
 		t.Fatal(failMsg)
 	}
 }
+
+func TestAbsoluteOrSelfResolvesRelativePaths(t *testing.T) {
+	got := absoluteOrSelf("./README.md")
+	if !filepath.IsAbs(got) {
+		t.Fatalf("expected an absolute path, got %q", got)
+	}
+}
+
+func TestAbsoluteOrSelfLeavesAbsolutePathsUnchanged(t *testing.T) {
+	want, err := filepath.Abs("/already/absolute/file.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := absoluteOrSelf("/already/absolute/file.md"); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestRealMarkdownInitializeSucceedsWithRelativeFilePath is the direct
+// regression guard for a real bug found live, 2026-10-31: the LSP rootURI
+// was built from Editor's own FilePath verbatim, with no absolute-path
+// resolution — producing the malformed "file://." whenever the file was
+// opened via a relative path, which is the overwhelmingly common real
+// case (`dp file.md`, `task tui -- file.md`), not an edge case. gopls
+// tolerated this silently; marksman does not — it spawned, then exited
+// immediately, surfacing only as "lspclient: connection closed while
+// waiting for initialize response," with the real cause hidden because
+// lspclient.Start discards a crashed server's stderr. Root-caused via a
+// minimal standalone repro against the real marksman binary before
+// fixing: the identical Initialize call failed with a relative-derived
+// rootURI and succeeded once it was made absolute (see absoluteOrSelf).
+// Deliberately chdirs and opens by a bare relative filename — opening via
+// NewEditorFromFile's usual absolute t.TempDir() path, like every other
+// real LSP test in this file, would never have exercised the actual
+// trigger condition at all.
+func TestRealMarkdownInitializeSucceedsWithRelativeFilePath(t *testing.T) {
+	if os.Getenv("LSPMANAGER_INTEGRATION") == "" {
+		t.Skip("set LSPMANAGER_INTEGRATION=1 to run a real marksman end-to-end")
+	}
+	isolateLSPCacheDir(t)
+
+	serversDir, err := platform.LSPServersDir()
+	if err != nil {
+		t.Fatalf("platform.LSPServersDir() error = %v", err)
+	}
+	entry, _ := lspmanager.EntryFor(types.LanguageMarkdown)
+	specs, err := lspmanager.LoadPackages(t.TempDir(), map[string]bool{"marksman": true}, time.Hour, nil)
+	if err != nil {
+		t.Fatalf("LoadPackages() error = %v", err)
+	}
+	// Unlike gopls's MethodGo (nil targets is harmless — it's `go install`,
+	// not a platform-specific asset download), marksman is MethodGitHubBinary
+	// and genuinely needs real targets to pick the right release asset —
+	// see lspmanager's own TestInstallGitHubBinaryRealEndToEnd.
+	installed, err := lspmanager.Install(serversDir, specs["marksman"], entry, platform.CurrentTargets())
+	if err != nil {
+		t.Fatalf("Install(marksman) error = %v", err)
+	}
+	if err := lspmanager.RecordInstalled(serversDir, installed); err != nil {
+		t.Fatalf("RecordInstalled() error = %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	// The actual regression trigger: "notes.md", not an absolute path.
+	e, err := NewEditorFromFile("notes.md")
+	if err != nil {
+		t.Fatalf("NewEditorFromFile() error = %v", err)
+	}
+	t.Cleanup(func() {
+		e.mu.Lock()
+		server := e.lspService.Server
+		e.mu.Unlock()
+		if server != nil {
+			_ = server.Stop()
+		}
+	})
+
+	waitForLSPReady(t, e)
+	if strings.Contains(e.StatusMessage(), "failed to initialize") {
+		t.Fatalf("marksman failed to initialize against a relative file path: %s", e.StatusMessage())
+	}
+}

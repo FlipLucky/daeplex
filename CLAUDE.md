@@ -1557,6 +1557,51 @@ bench` never doubles as a slow way to run the real suite) so checking
 performance stays a one-command, repeatable habit instead of a one-off
 diagnostic script like the throwaway one that produced the numbers above.
 
+**A real, previously-unfindable LSP bug found live and fixed the same
+day**: opening a real markdown file reported "marksman failed to
+initialize: lspclient: initialize: lspclient: connection closed while
+waiting for initialize response" — true for `README.md` opened via a
+relative path (`./tmp/dp ./README.md`, or `task tui -- file.md`), the
+overwhelmingly common way anyone actually opens a file, not an edge case.
+Root-caused by direct reproduction against the real binary (not guessed):
+`startLSPAsyncLocked`'s rootURI was built as `"file://" +
+filepath.Dir(filePath)` with `filePath` used exactly as `Editor.FilePath`
+stores it — verbatim, relative or absolute, whichever the caller
+originally opened it with. On a relative path like `"./README.md"`, that
+produces the malformed URI `"file://."`, which isn't a valid absolute
+`file://` URI at all. `gopls` has silently tolerated this the entire time
+LSP has existed in this project (confirmed — every `TestReal*EndToEnd`
+test in `lsp_test.go` opens its file via an *absolute* `t.TempDir()` path,
+so this exact bug was structurally invisible to the whole existing test
+suite); `marksman` does not tolerate it — it spawns, logs nothing useful
+anywhere DaePlex can see, and exits immediately, which is exactly why the
+error message gave no hint of the real cause: `lspclient.Start`
+deliberately discards a server's stderr (see its own doc comment), so
+whatever marksman actually printed about the bad URI is gone the moment
+it happens. Confirmed precisely via a minimal standalone repro against the
+real downloaded marksman binary, outside the editor entirely: the exact
+same `Initialize` call fails with the relative-derived URI and succeeds
+once it's resolved to an absolute path first — not a guess, a controlled
+before/after. Fixed with a new `absoluteOrSelf` helper (`lsp.go`) wrapping
+`filepath.Dir(filePath)` with `filepath.Abs`, falling back to the original
+string only on `os.Getwd()` itself failing. A second, smaller bug was
+caught in the same investigation: a failed `Initialize` left its already-
+spawned subprocess completely unreaped — confirmed live via `ps` showing
+real `<defunct>` marksman zombies accumulating under the running `dp`
+process — fixed by calling `server.Stop()` (safe even against an
+already-dead process; it still reaps via `Wait()`) on that failure path,
+the same fire-and-forget pattern `stopLSPServerLocked` already uses.
+Verified two ways: a fast, pure-logic `TestAbsoluteOrSelf*` pair, and a
+new real end-to-end regression test,
+`TestRealMarkdownInitializeSucceedsWithRelativeFilePath` — gated behind
+`LSPMANAGER_INTEGRATION=1` like every other real-server test in this file,
+but the *first* one in this project to deliberately `os.Chdir` and open by
+a bare relative filename rather than `NewEditorFromFile`'s usual absolute
+temp-dir path, specifically so it actually exercises the bug's real
+trigger condition — confirmed to fail against the pre-fix code and pass
+against the fix, not just written to pass. `go build`/`vet`/`gofmt`/
+`test ./...` all clean, plus both tagged `daeplex-gui`/`dp` builds.
+
 A real, separate gap found live in the same testing pass, unrelated to
 preview work: `<C-d>`/`<C-u>` (half-page scroll) are missing from
 `internal/core/keyengine` entirely — not wired at all, not even an
