@@ -530,3 +530,14 @@ scroll) missing from `internal/core/keyengine` entirely — logged as
 `ATOMIC_TASKS.md`'s T33b rather than fixed inline, since real vim's
 version needs the current viewport height, which `Editor`/`keyengine`
 don't carry today. See `CLAUDE.md`'s Current phase for the full writeup.
+
+**Found jumpy immediately after, fixed the same day**: that bare
+`ScrollTo` call pins the target line to row 0 unconditionally on every
+call — since the preview holds the entire rendered document in one
+`TextView`, this snapped the pane to re-anchor at the top every time the
+cursor crossed into a new block, even when the target was already on
+screen. Fixed with `scrollPreviewToLine`, a deadzone scroll (only moves
+when the target actually leaves the visible range, landing with a margin
+rather than pinned to the edge — same reasoning as the main pane's own
+cursor-follow). See `CLAUDE.md`'s Current phase for the full writeup and
+live-verification detail.

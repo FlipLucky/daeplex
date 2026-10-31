@@ -40,6 +40,41 @@ const viewportRadius = 200
 // no auto-follow at all, which is what existed here before.
 const cursorTopPadding = 10
 
+// scrollPreviewToLine keeps the preview pane's synced line on screen without
+// re-anchoring it to the very top on every render. A bare
+// previewView.ScrollTo(target, 0) call (tried first) pins target to row 0
+// unconditionally — since the preview shows the whole rendered document in
+// one TextView, not a windowed slice the way the main editor pane does, that
+// made the pane visibly snap every time the cursor crossed into a new
+// heading/paragraph/list item, even when the target line was already
+// perfectly visible. Found live by the user ("it has scroll sync, but is
+// jumpy"). This only scrolls when target has actually left the visible
+// range, and lands it cursorTopPadding rows from the top rather than pinned
+// to the edge — same margin reasoning as the main pane's own cursor-follow.
+// GetInnerRect's height defaults to tview's own placeholder (10, from
+// Box.width/height's zero-value, see NewBox) before the first real draw —
+// no special-casing needed, the margin clamp below already keeps that
+// placeholder height sane.
+func scrollPreviewToLine(view *tview.TextView, target int) {
+	_, _, _, height := view.GetInnerRect()
+	if height < 1 {
+		height = 1
+	}
+	offset, _ := view.GetScrollOffset()
+	if target >= offset && target < offset+height {
+		return
+	}
+	margin := cursorTopPadding
+	if margin > height/2 {
+		margin = height / 2
+	}
+	newOffset := target - margin
+	if newOffset < 0 {
+		newOffset = 0
+	}
+	view.ScrollTo(newOffset, 0)
+}
+
 func completionWindow(candidates []string, index, maxRows int) ([]string, int) {
 	if len(candidates) <= maxRows {
 		return candidates, index
@@ -476,12 +511,14 @@ func Boot(ws *workspace.Workspace) error {
 		//
 		// Scroll-sync (not a focus-switchable pane of its own — see
 		// previewView's doc comment): every render, regardless of
-		// whether a reparse happened, the preview scrolls to the
+		// whether a reparse happened, the preview scrolls to keep the
 		// rendered line LineMap.ScrollTarget says corresponds to the
-		// cursor's current source line. This runs on every renderContent
-		// call precisely because that already includes bare cursor
-		// motion — scrolling only on a reparse would mean the preview
-		// stops following you the moment you stop editing and just read.
+		// cursor's current source line on screen (scrollPreviewToLine,
+		// not a bare ScrollTo — see its own doc comment for why). This
+		// runs on every renderContent call precisely because that
+		// already includes bare cursor motion — scrolling only on a
+		// reparse would mean the preview stops following you the moment
+		// you stop editing and just read.
 		if previewActive {
 			if cur.Language() != types.LanguageMarkdown {
 				previewView.SetText("[#6a6a6e](not a markdown buffer)[-:-:-]")
@@ -494,7 +531,7 @@ func Boot(ws *workspace.Workspace) error {
 					lastPreviewSource = src
 					previewLineMap = lineMap
 				}
-				previewView.ScrollTo(previewLineMap.ScrollTarget(cursor.Row), 0)
+				scrollPreviewToLine(previewView, previewLineMap.ScrollTarget(cursor.Row))
 			}
 			panesFlex.ResizeItem(previewView, 0, 1)
 		} else {

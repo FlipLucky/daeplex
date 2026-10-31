@@ -1423,6 +1423,31 @@ scroll-sync most needs to keep running. Verified against a real tagged
 and single-line motion (`j`) scroll the preview to the exact matching
 section, confirmed via `tmux`, not just the unit-level `LineMap` tests.
 
+**Found jumpy live immediately after, and fixed the same day**: a bare
+`previewView.ScrollTo(target, 0)` call unconditionally pins `target` to
+row 0 of the pane on *every* call — since the preview holds the whole
+rendered document in one `TextView` (not a windowed slice the way the main
+editor pane's own `ScrollTo` use is, see Known issues item 2), this meant
+the pane visibly snapped to re-anchor its target line to the very top
+every time the cursor crossed into a new heading/paragraph/list item, even
+when that line was already on screen. Fixed with a new
+`scrollPreviewToLine(view, target)`: only scrolls when `target` has
+actually left `[offset, offset+height)` (read via `GetScrollOffset`/
+`GetInnerRect`), and when it does, lands `target` `cursorTopPadding` rows
+from the top rather than pinned to the edge — the same margin reasoning
+the main pane's own cursor-follow already uses, clamped to `height/2` on a
+pane too short for the full margin. `GetInnerRect`'s height defaults to
+tview's own `Box` placeholder (10, from `NewBox`) before the first real
+draw — no special-casing needed, the margin clamp already keeps that
+placeholder sane. Verified via new `preview_scroll_test.go` (constructs a
+`TextView` with `SetRect`/`ScrollTo` directly, no running `Application`
+needed, same pure-logic-testable shape `wrapText`'s own tests use) and
+live against the real tagged `dp` binary: `jjjj` through a run of
+same-visible-window paragraphs no longer moves the preview's scroll
+offset at all, while a large jump (`100G`) still scrolls it, landing with
+real context above the target rather than snapped flush to the pane's
+top edge.
+
 A real, separate gap found live in the same testing pass, unrelated to
 preview work: `<C-d>`/`<C-u>` (half-page scroll) are missing from
 `internal/core/keyengine` entirely — not wired at all, not even an
