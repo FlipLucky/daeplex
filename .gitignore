@@ -27,6 +27,9 @@ go.work.sum
 # task build's local binaries (see Taskfile.yaml's build/clean tasks)
 /tmp/
 
+# goreleaser's local build output (see .goreleaser.yaml / release.yml)
+/dist/
+
 # env file
 .env
 

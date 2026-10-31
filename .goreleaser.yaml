@@ -1,0 +1,119 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: daeplex
+
+# Grammar subset tags for internal/lang/syntax's tree-sitter binding — must
+# be kept in sync by hand with Taskfile.yaml's GRAMMAR_TAGS var and
+# release.yml's own copy of this same list (same discipline Taskfile.yaml
+# already documents: adding a curated language means updating every place
+# that names the set, now three instead of two).
+env:
+  - GRAMMAR_TAGS=grammar_subset,grammar_subset_go,grammar_subset_typescript,grammar_subset_tsx,grammar_subset_javascript,grammar_subset_html,grammar_subset_css,grammar_subset_scss,grammar_subset_php,grammar_subset_dart,grammar_subset_c,grammar_subset_cpp,grammar_subset_yaml,grammar_subset_json,grammar_subset_dockerfile,grammar_subset_markdown
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  # dp — the TUI, pure Go (tcell/tview), no cgo anywhere — cross-compiles
+  # cleanly for every target from one runner.
+  - id: dp
+    main: ./cmd/tui
+    binary: dp
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    tags:
+      - "{{ .Env.GRAMMAR_TAGS }}"
+    ldflags:
+      - -s -w
+
+  # daeplex-api — not consumer-facing yet (see CLAUDE.md's Known issues),
+  # but already builds standalone, so it ships alongside the other two.
+  # No grammar tags, matching Taskfile.yaml's build task, which doesn't
+  # pass any to this binary either.
+  - id: daeplex-api
+    main: ./cmd/api
+    binary: daeplex-api
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+
+  # daeplex-gui — Gio needs cgo on Linux (confirmed: its Vulkan backend has
+  # no CGO_ENABLED=0 code path at all) but builds cgo-free on Windows
+  # (confirmed via a clean CGO_ENABLED=0 cross-compile from Linux) — so
+  # both come from this same CI runner, split into two build entries only
+  # because their CGO_ENABLED differs. macOS needs cgo too (Objective-C
+  # bridging) and, unlike Windows, genuinely can't cross-compile from
+  # Linux — that leg isn't declared here at all; release.yml builds and
+  # uploads it separately from a real macOS runner.
+  - id: daeplex-gui-linux
+    main: ./cmd/gui
+    binary: daeplex-gui
+    env:
+      - CGO_ENABLED=1
+    goos: [linux]
+    goarch: [amd64]
+    tags:
+      - "{{ .Env.GRAMMAR_TAGS }}"
+    ldflags:
+      - -s -w
+
+  - id: daeplex-gui-windows
+    main: ./cmd/gui
+    binary: daeplex-gui
+    env:
+      - CGO_ENABLED=0
+    goos: [windows]
+    goarch: [amd64, arm64]
+    tags:
+      - "{{ .Env.GRAMMAR_TAGS }}"
+    ldflags:
+      - -s -w
+
+archives:
+  # Split into two groups rather than one bundle-everything archive per
+  # platform: dp + daeplex-api cover all 6 platforms identically, but
+  # daeplex-gui only covers 3 (no macOS leg here — see the builds section
+  # above) — GoReleaser refuses to bundle a differing binary count into one
+  # archive per platform (confirmed: a single combined archive list failed
+  # with "archive has different count of binaries for each platform"), so
+  # each group here has a *consistent* binary count across every platform
+  # it covers.
+  - id: daeplex
+    ids: [dp, daeplex-api]
+    formats: [tar.gz]
+    name_template: >-
+      daeplex_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+  - id: daeplex-gui
+    ids: [daeplex-gui-linux, daeplex-gui-windows]
+    formats: [tar.gz]
+    name_template: >-
+      daeplex-gui_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  github:
+    owner: FlipLucky
+    name: daeplex

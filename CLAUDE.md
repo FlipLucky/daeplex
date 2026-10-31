@@ -1828,6 +1828,60 @@ session against the real tagged `dp` binary (`dit` removing nested
 `go build`/`vet`/`gofmt`/`test ./...` and `go test -race` both clean, plus
 both tagged `daeplex-gui`/`dp` builds.
 
+**Release packaging, 2026-10-31** — prompted directly by the user wanting to
+hand the repo to someone else without them needing a Go toolchain installed:
+`.goreleaser.yaml` + `.github/workflows/release.yml`, triggered by pushing a
+version tag (`v*`). Produces pre-built `dp`/`daeplex-api`/`daeplex-gui`
+binaries attached to a GitHub Release — no `go install`/build step for
+whoever downloads them. AUR/`.deb` packaging deliberately out of scope for
+this pass (binary-only GitHub Releases was the actual ask); the user's own
+framing was that this should be set up properly once, now, specifically so
+it can be forgotten about afterward.
+
+A real cgo boundary was found and verified empirically before writing any
+config, not assumed from Gio's own "cross-platform, even WASM" reputation
+(which is real, but turned out to be backend-specific, not blanket): Gio
+needs `CGO_ENABLED=1` on Linux (its Vulkan backend has no cgo-free code
+path — confirmed via an actual failed `CGO_ENABLED=0` build attempt) and on
+macOS (Objective-C bridging — confirmed via real "undefined: Functions"
+compile errors in `gioui.org/internal/gl` without cgo), but builds
+**cgo-free on Windows** — confirmed via a clean `CGO_ENABLED=0` cross-build
+from Linux. `dp`/`daeplex-api` have no Gio dependency at all (tcell/tview +
+stdlib) and cross-compile for every target from one place with zero cgo
+concerns either way.
+
+This splits the actual CI shape: `daeplex-gui`'s Linux (cgo on, native to
+the runner) and Windows (cgo off, cross-compiled) builds both run in one
+`goreleaser release` call on a single `ubuntu-latest` job — two build
+entries only because their `CGO_ENABLED` differs, not because they need
+different machines. macOS is a second, genuinely separate job on a real
+`macos-latest` runner (cgo can't cross-compile to a *different* OS the way
+it can cross-arch within the same one), building `daeplex-gui` directly via
+`go build` and uploading the result as extra release assets via `gh release
+upload` once the first job's `goreleaser release` has already created the
+release — deliberately not GoReleaser's own multi-machine split/merge
+flow, since a plain second job is easier for a first CI setup to reason
+about and debug. The macOS job's amd64 leg (cross-arch within macOS, from
+the arm64-native `macos-latest` runner) is flagged honestly as unverified
+until a real tagged push actually exercises it — expected to work (same-OS
+cross-arch via Xcode's own SDK, not the cross-*OS* case that's actually
+hard), not confirmed.
+
+A real GoReleaser constraint surfaced and was fixed, not routed around:
+bundling every build's output into one archive per platform failed outright
+("archive has different count of binaries for each platform") since
+Linux/Windows carry 3 binaries (`dp`+`daeplex-api`+`daeplex-gui`) but macOS
+only 2 (no `daeplex-gui` build declared in this config at all for that OS).
+Fixed by splitting into two archive groups instead of fighting the
+check: `dp`+`daeplex-api` bundle together (identical 6-platform coverage),
+`daeplex-gui` ships as its own archive only for the 3 platforms it's
+declared for. Verified as far as a Linux machine can: a full local
+`goreleaser release --snapshot --clean` actually built and archived all 9
+resulting bundles, and one extracted binary was confirmed to be a real,
+working stripped ELF executable (not just "the build step didn't error") —
+the macOS job itself is unverified until the first real tagged release runs
+it.
+
 ## Module & toolchain
 
 - Module: `github.com/fliplucky/daeplex`
@@ -1842,8 +1896,11 @@ both tagged `daeplex-gui`/`dp` builds.
     (e.g. a bare `go build ./...`, as `go vet`/tests already do) links in
     the library's full ~200-language fleet instead, which still works but
     produces a much larger binary.
-- No CI configuration and no linter config exist yet. `go vet` and `go test`
-  are the only automated checks.
+- No test/lint CI exists yet — `go vet` and `go test` are still only ever run
+  by hand, locally. A *release* pipeline does exist as of 2026-10-31
+  (`.goreleaser.yaml` + `.github/workflows/release.yml`, triggered on a
+  version tag push) — see Current phase for the full writeup. These are two
+  separate, independent gaps; closing one didn't touch the other.
 
 ## Architecture / package map
 
