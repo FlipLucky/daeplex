@@ -101,12 +101,12 @@ tasks:
   tui:
     desc: Run the TUI application interactively on the host terminal
     cmds:
-      - go run -tags "{{.GRAMMAR_TAGS}}" ./cmd/tui/main.go
+      - go run -tags "{{.GRAMMAR_TAGS}}" ./cmd/tui/main.go {{.CLI_ARGS}}
 
   tui-docker:
     desc: Run the TUI application interactively inside a Docker container
     cmds:
-      - docker compose run --rm tui go run -tags "{{.GRAMMAR_TAGS}}" ./cmd/tui/main.go
+      - docker compose run --rm tui go run -tags "{{.GRAMMAR_TAGS}}" ./cmd/tui/main.go {{.CLI_ARGS}}
 
   dev:
     desc: Start the Dev/Engine service in Docker Compose
