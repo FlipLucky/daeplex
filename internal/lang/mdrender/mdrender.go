@@ -54,17 +54,52 @@ type LinePoint struct {
 type LineMap []LinePoint
 
 // ScrollTarget returns the rendered line a preview pane should scroll to
-// for the cursor sitting at sourceLine — the entry for the latest
-// recorded source line at or before sourceLine, so the preview always
-// shows "at least this far," never jumping past where the cursor
-// actually is. Returns 0 (top of the document) if sourceLine precedes
-// every recorded point.
+// for the cursor sitting at sourceLine. Linearly interpolates between the
+// two recorded points surrounding sourceLine, rather than snapping to the
+// latest one at or before it — a first version did exactly that, and was
+// found live to feel "choppy": a mark only exists at the *start* of each
+// block (heading/paragraph/list item/etc.), so a long block with no
+// internal mark held the target frozen while the cursor moved through it,
+// then jumped the whole span at once on the next block. Interpolating
+// turns that held-then-jump step function into a ramp — the target
+// advances a little with every source line moved, matching real cursor
+// motion continuously instead of in block-sized chunks. Before the first
+// recorded point, interpolates from an implicit (0, 0) origin; past the
+// last one, extrapolates using the final segment's own slope (falling
+// back to a flat continuation for a single-point map).
 func (m LineMap) ScrollTarget(sourceLine int) int {
-	i := sort.Search(len(m), func(i int) bool { return m[i].SourceLine > sourceLine })
-	if i == 0 {
+	if len(m) == 0 {
 		return 0
 	}
-	return m[i-1].RenderedLine
+	if sourceLine <= m[0].SourceLine {
+		if m[0].SourceLine == 0 {
+			return m[0].RenderedLine
+		}
+		return interpolate(0, 0, m[0].SourceLine, m[0].RenderedLine, sourceLine)
+	}
+	for i := 1; i < len(m); i++ {
+		if sourceLine < m[i].SourceLine {
+			prev, next := m[i-1], m[i]
+			return interpolate(prev.SourceLine, prev.RenderedLine, next.SourceLine, next.RenderedLine, sourceLine)
+		}
+	}
+	last := m[len(m)-1]
+	if len(m) == 1 {
+		return last.RenderedLine
+	}
+	prev := m[len(m)-2]
+	if prev.SourceLine == last.SourceLine {
+		return last.RenderedLine
+	}
+	return interpolate(prev.SourceLine, prev.RenderedLine, last.SourceLine, last.RenderedLine, sourceLine)
+}
+
+// interpolate finds the rendered line for sourceLine on the line between
+// (srcA, renderA) and (srcB, renderB) — srcA != srcB is the caller's
+// responsibility to guarantee (ScrollTarget never calls it otherwise).
+func interpolate(srcA, renderA, srcB, renderB, sourceLine int) int {
+	frac := float64(sourceLine-srcA) / float64(srcB-srcA)
+	return renderA + int(frac*float64(renderB-renderA))
 }
 
 // ToTviewTags renders markdown source into tview's dynamic-color tag

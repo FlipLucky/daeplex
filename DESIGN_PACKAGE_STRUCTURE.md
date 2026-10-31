@@ -539,5 +539,20 @@ cursor crossed into a new block, even when the target was already on
 screen. Fixed with `scrollPreviewToLine`, a deadzone scroll (only moves
 when the target actually leaves the visible range, landing with a margin
 rather than pinned to the edge — same reasoning as the main pane's own
-cursor-follow). See `CLAUDE.md`'s Current phase for the full writeup and
-live-verification detail.
+cursor-follow).
+
+**Found choppy right after that, fixed the same day**: the deadzone
+traded a jittery feel for a hold-then-lurch one — not a flaw in the
+deadzone itself, but in what it was reacting to: `LineMap.ScrollTarget`
+only recorded a mark at each block's *start*, so a long unbroken
+paragraph (no internal mark) held the target frozen for its whole span,
+then jumped on the next block. Fixed at the source — `ScrollTarget` now
+linearly interpolates between the recorded points surrounding the
+cursor's line instead of snapping to the latest one at or before it,
+turning that step function into a ramp. With the target itself smooth,
+the deadzone became unneeded complexity for a problem interpolation
+already solved — replaced with the plain `target - cursorTopPadding`
+computed every render, the same shape the main pane's own cursor-follow
+already uses. `scrollPreviewToLine` is gone; `previewScrollOffset` is a
+trivial, pure function. See `CLAUDE.md`'s Current phase for the full
+writeup and live-verification detail.

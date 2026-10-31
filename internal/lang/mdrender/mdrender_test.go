@@ -129,22 +129,44 @@ func TestLineMapScrollTargetBeforeFirstPointStaysAtTop(t *testing.T) {
 	}
 }
 
-func TestLineMapScrollTargetFindsLatestPointAtOrBeforeCursor(t *testing.T) {
+// TestLineMapScrollTargetInterpolatesBetweenPoints confirms ScrollTarget
+// ramps smoothly between recorded points instead of holding flat until the
+// next one and then jumping — the fix for a real live-reported "choppy"
+// scroll-sync feel (see ScrollTarget's own doc comment).
+func TestLineMapScrollTargetInterpolatesBetweenPoints(t *testing.T) {
 	lm := LineMap{{SourceLine: 0, RenderedLine: 0}, {SourceLine: 4, RenderedLine: 2}, {SourceLine: 8, RenderedLine: 5}}
 	cases := []struct {
 		cursorLine int
 		want       int
 	}{
 		{cursorLine: 0, want: 0},
-		{cursorLine: 3, want: 0},
-		{cursorLine: 4, want: 2},
-		{cursorLine: 7, want: 2},
-		{cursorLine: 8, want: 5},
-		{cursorLine: 100, want: 5},
+		{cursorLine: 2, want: 1},    // halfway from (0,0) to (4,2)
+		{cursorLine: 4, want: 2},    // exactly on a recorded point
+		{cursorLine: 6, want: 3},    // halfway from (4,2) to (8,5): 2 + 0.5*3 = 3.5 -> 3
+		{cursorLine: 8, want: 5},    // exactly on the last recorded point
+		{cursorLine: 12, want: 8},   // extrapolated past the last point using the final segment's slope (3/4)
+		{cursorLine: 100, want: 74}, // same slope, further out
 	}
 	for _, c := range cases {
 		if got := lm.ScrollTarget(c.cursorLine); got != c.want {
 			t.Errorf("ScrollTarget(%d) = %d, want %d", c.cursorLine, got, c.want)
 		}
+	}
+}
+
+// TestLineMapScrollTargetRampsAcrossALongUnmarkedBlock is the direct
+// regression case for the choppy bug: a long block with only a start mark
+// (no interior mark points, the common shape for a multi-line paragraph)
+// must still advance the target continuously as sourceLine increases
+// through it, not hold at the block's start value the whole way through.
+func TestLineMapScrollTargetRampsAcrossALongUnmarkedBlock(t *testing.T) {
+	lm := LineMap{{SourceLine: 0, RenderedLine: 0}, {SourceLine: 20, RenderedLine: 20}}
+	prev := -1
+	for line := 0; line <= 20; line++ {
+		got := lm.ScrollTarget(line)
+		if got <= prev {
+			t.Fatalf("ScrollTarget(%d) = %d did not advance past previous %d — held flat instead of ramping", line, got, prev)
+		}
+		prev = got
 	}
 }

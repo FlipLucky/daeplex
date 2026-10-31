@@ -1448,6 +1448,39 @@ offset at all, while a large jump (`100G`) still scrolls it, landing with
 real context above the target rather than snapped flush to the pane's
 top edge.
 
+**Found choppy live right after that, and fixed the same day** — "no
+longer jittery... now choppy": the deadzone fix above traded one feel for
+another, not for a different reason than expected but a root cause not
+yet addressed. `LineMap.ScrollTarget` only ever recorded a mark at the
+*start* of a block (heading/paragraph/list item/etc.) — a long block with
+no internal mark (a multi-line paragraph with no blank lines inside it,
+the single most common real shape) held the target frozen for its entire
+span, then jumped the whole thing at once on the next block. The deadzone
+logic itself wasn't wrong; `ScrollTarget` was handing it a step function
+to react to, not a ramp. Fixed at the actual source:
+`ScrollTarget` now linearly interpolates between the two recorded points
+surrounding `sourceLine` (extrapolating past the last one using that
+segment's own slope, interpolating from an implicit `(0, 0)` origin before
+the first) — the target now advances a little on every single source line
+moved, not just at block boundaries. With the target itself smooth, the
+deadzone's special "only scroll if out of view" logic became unnecessary
+complexity for a problem interpolation already solved — replaced with the
+plain, unconditional `target - cursorTopPadding` computed every render,
+the exact same shape the main editor pane's own `scrollRow :=
+cursorRow - cursorTopPadding` already uses a few lines up in the same
+file. `scrollPreviewToLine` and its `GetInnerRect`/`GetScrollOffset`-based
+test are gone; `previewScrollOffset(target, margin int) int` is a plain,
+trivially-testable function doing just the subtraction and clamp.
+Verified via `mdrender`'s new `TestLineMapScrollTargetInterpolatesBetweenPoints`/
+`TestLineMapScrollTargetRampsAcrossALongUnmarkedBlock` and `tui-base`'s
+rewritten `preview_scroll_test.go`, plus live against the real tagged `dp`
+binary with a synthetic 5-section file where each section is one 15-line
+unbroken paragraph: stepping `j` through it moved the preview's visible
+top line by roughly one rendered line per keystroke once scrolling
+started, not holding flat for several steps and then lurching forward —
+confirmed by capturing the preview's top line after each of 16 individual
+`j` presses via `tmux`.
+
 A real, separate gap found live in the same testing pass, unrelated to
 preview work: `<C-d>`/`<C-u>` (half-page scroll) are missing from
 `internal/core/keyengine` entirely — not wired at all, not even an

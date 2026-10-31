@@ -40,39 +40,26 @@ const viewportRadius = 200
 // no auto-follow at all, which is what existed here before.
 const cursorTopPadding = 10
 
-// scrollPreviewToLine keeps the preview pane's synced line on screen without
-// re-anchoring it to the very top on every render. A bare
-// previewView.ScrollTo(target, 0) call (tried first) pins target to row 0
-// unconditionally — since the preview shows the whole rendered document in
-// one TextView, not a windowed slice the way the main editor pane does, that
-// made the pane visibly snap every time the cursor crossed into a new
-// heading/paragraph/list item, even when the target line was already
-// perfectly visible. Found live by the user ("it has scroll sync, but is
-// jumpy"). This only scrolls when target has actually left the visible
-// range, and lands it cursorTopPadding rows from the top rather than pinned
-// to the edge — same margin reasoning as the main pane's own cursor-follow.
-// GetInnerRect's height defaults to tview's own placeholder (10, from
-// Box.width/height's zero-value, see NewBox) before the first real draw —
-// no special-casing needed, the margin clamp below already keeps that
-// placeholder height sane.
-func scrollPreviewToLine(view *tview.TextView, target int) {
-	_, _, _, height := view.GetInnerRect()
-	if height < 1 {
-		height = 1
+// previewScrollOffset turns a preview target line (mdrender.LineMap's
+// continuously-interpolated ScrollTarget — see its own doc comment) into a
+// TextView scroll offset, landing margin rows above target rather than
+// pinned to row 0. Two earlier shapes were tried and found live to feel
+// wrong: a bare ScrollTo(target, 0) snapped the pane to re-anchor at the
+// top on every block crossing ("jumpy"), and a deadzone that only
+// rescrolled once target left the visible range held still too long and
+// then corrected in one large lurch ("choppy") — a symptom of
+// ScrollTarget's own old step-function shape, not of the deadzone logic
+// itself. With ScrollTarget now a continuous ramp, the simplest thing
+// works: compute this every render exactly like the main editor pane's own
+// cursorRow-cursorTopPadding scroll-follow (see its call site) rather than
+// a bespoke in-view check — same margin, same "recompute unconditionally"
+// shape, applied to the preview's own target instead of the cursor's row.
+func previewScrollOffset(target, margin int) int {
+	offset := target - margin
+	if offset < 0 {
+		return 0
 	}
-	offset, _ := view.GetScrollOffset()
-	if target >= offset && target < offset+height {
-		return
-	}
-	margin := cursorTopPadding
-	if margin > height/2 {
-		margin = height / 2
-	}
-	newOffset := target - margin
-	if newOffset < 0 {
-		newOffset = 0
-	}
-	view.ScrollTo(newOffset, 0)
+	return offset
 }
 
 func completionWindow(candidates []string, index, maxRows int) ([]string, int) {
@@ -513,12 +500,14 @@ func Boot(ws *workspace.Workspace) error {
 		// previewView's doc comment): every render, regardless of
 		// whether a reparse happened, the preview scrolls to keep the
 		// rendered line LineMap.ScrollTarget says corresponds to the
-		// cursor's current source line on screen (scrollPreviewToLine,
-		// not a bare ScrollTo — see its own doc comment for why). This
-		// runs on every renderContent call precisely because that
-		// already includes bare cursor motion — scrolling only on a
-		// reparse would mean the preview stops following you the moment
-		// you stop editing and just read.
+		// cursor's current source line on screen — previewScrollOffset,
+		// unconditionally recomputed, the same shape the main pane's own
+		// scrollRow := cursorRow - cursorTopPadding uses a few lines up
+		// (see its own doc comment for why a deadzone check was tried
+		// and dropped). This runs on every renderContent call precisely
+		// because that already includes bare cursor motion — scrolling
+		// only on a reparse would mean the preview stops following you
+		// the moment you stop editing and just read.
 		if previewActive {
 			if cur.Language() != types.LanguageMarkdown {
 				previewView.SetText("[#6a6a6e](not a markdown buffer)[-:-:-]")
@@ -531,7 +520,8 @@ func Boot(ws *workspace.Workspace) error {
 					lastPreviewSource = src
 					previewLineMap = lineMap
 				}
-				scrollPreviewToLine(previewView, previewLineMap.ScrollTarget(cursor.Row))
+				target := previewLineMap.ScrollTarget(cursor.Row)
+				previewView.ScrollTo(previewScrollOffset(target, cursorTopPadding), 0)
 			}
 			panesFlex.ResizeItem(previewView, 0, 1)
 		} else {
