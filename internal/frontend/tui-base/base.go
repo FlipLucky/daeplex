@@ -8,9 +8,11 @@ import (
 	"github.com/rivo/tview"
 
 	"github.com/fliplucky/daeplex/internal/core/editor"
+	"github.com/fliplucky/daeplex/internal/core/exmode"
 	"github.com/fliplucky/daeplex/internal/core/workspace"
 	"github.com/fliplucky/daeplex/internal/document/offset"
 	"github.com/fliplucky/daeplex/internal/frontend/splash"
+	"github.com/fliplucky/daeplex/internal/lang/mdrender"
 	"github.com/fliplucky/daeplex/internal/presentation/splitview"
 	"github.com/fliplucky/daeplex/internal/presentation/viewmanager"
 	"github.com/fliplucky/daeplex/internal/types"
@@ -331,10 +333,31 @@ func Boot(ws *workspace.Workspace) error {
 	editorView2.SetBackgroundColor(editorBg)
 	editorView2.SetTextColor(editorFg)
 
+	// previewView is a read-only rendered-markdown pane, toggled by
+	// ":MdPreview" (below) — the first real consumer of the
+	// markdown-rendering decision in DESIGN_PACKAGE_STRUCTURE.md's Part 4.
+	// Deliberately not a splitview.Pane: a preview has no cursor and never
+	// receives keystrokes, so it sidesteps splitview's whole "independent
+	// cursor on a shared Editor" mechanism entirely rather than needing
+	// it — see mdrender's package doc comment. Lives in panesFlex (not
+	// editorView2's slot) so it shows *alongside* the buffer being
+	// edited, not as an alternative second editable pane.
+	previewView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetWrap(true)
+	previewView.SetBorder(true).
+		SetTitle("Preview").
+		SetBorderColor(tcell.GetColor("#111113"))
+	previewView.SetBackgroundColor(editorBg)
+	previewView.SetTextColor(editorFg)
+	var previewActive bool
+	var lastPreviewSource string
+
 	panesFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
 		AddItem(editorView, 0, 1, true).
-		AddItem(editorView2, 0, 0, false)
+		AddItem(editorView2, 0, 0, false).
+		AddItem(previewView, 0, 0, false)
 
 	// :e/:w completion popup — collapsed to 0 height (via ResizeItem in
 	// renderContent) whenever no completion is in progress.
@@ -430,6 +453,28 @@ func Boot(ws *workspace.Workspace) error {
 		filePath := cur.GetFilePath()
 		if filePath == "" {
 			filePath = "[No Name]"
+		}
+
+		// Preview pane (:MdPreview, see SetInputCapture below). Re-parses
+		// only when the source text actually changed since the last
+		// render — renderContent itself already only fires on a real edit
+		// or buffer switch (ChangeChan/Switched), not on bare cursor
+		// motion, but a plain cursor move still reaches here via the same
+		// function, so this guard is the difference between "parse once
+		// per edit" (Part 4's Gate 2 requirement) and "parse once per
+		// edit, plus once per keystroke that merely moved the cursor."
+		if previewActive {
+			if cur.Language() != types.LanguageMarkdown {
+				previewView.SetText("[#6a6a6e](not a markdown buffer)[-:-:-]")
+				lastPreviewSource = ""
+			} else if src := cur.GetText(); src != lastPreviewSource {
+				previewView.SetText(mdrender.ToTviewTags([]byte(src)))
+				lastPreviewSource = src
+			}
+			panesFlex.ResizeItem(previewView, 0, 1)
+		} else {
+			panesFlex.ResizeItem(previewView, 0, 0)
+			lastPreviewSource = ""
 		}
 
 		cursorScreenRow = focusedScreenRow
@@ -604,6 +649,22 @@ func Boot(ws *workspace.Workspace) error {
 			// return from to drain it).
 			renderContent()
 			return nil
+		}
+
+		// ":MdPreview" is peeked the same one-keystroke-early way
+		// Workspace.HandleKey already peeks :e/:bnext/etc. before
+		// forwarding a Command-mode <Enter> — this one stays local to
+		// tui-base rather than living in Workspace itself, since toggling
+		// a rendered-preview pane is purely this frontend's own
+		// presentation state, not a cross-buffer concern Workspace (or
+		// Editor) has any business knowing about.
+		if keyStr == "<Enter>" && types.Mode(ws.Current().GetModeInt()) == types.ModeCommand {
+			if cmd := exmode.Parse(ws.Current().GetCommandBuffer()); cmd.Name == "MdPreview" {
+				previewActive = !previewActive
+				ws.Current().SetMode(types.ModeNormal)
+				renderContent()
+				return nil
+			}
 		}
 
 		// Every other keystroke is forwarded through ws.HandleKey (not

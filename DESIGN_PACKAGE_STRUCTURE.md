@@ -343,6 +343,90 @@ The discrepancies below are written up with this distinction kept
 explicit — each one names which kind of gap it is, not just "this should
 be fixed."
 
+## Part 4: Markdown rendering as a shared primitive (2026-10-31)
+
+### Where this came from
+
+Resolving the Roadmap's still-open Stage 2 question — whether "preview"
+is a narrow read-only render or the first real instance of multi-pane —
+started as "what renders the markdown," and widened into a real decision
+about whether markdown rendering should be a one-off feature for the
+preview pane or a shared primitive used more broadly across the app.
+
+### The library: `goldmark`, not `glamour`
+
+Two real candidates checked, not assumed:
+
+- **`goldmark`** (yuin/goldmark) — pure Go, CommonMark-compliant, builds a
+  real AST, no cgo. Real cost, not guessed: a published benchmark shows
+  ~13,850 allocations / ~2.5MB per full-document parse — fine once per
+  content-change, not fine per render frame.
+- **`glamour`** (charmbracelet/glamour) — built on top of `goldmark`, but
+  renders straight to ANSI-escaped terminal strings. Rejected as the
+  shared layer: ANSI output is a dead end for `gui-base` (Gio needs
+  structured draw ops, not an escape-code string), and using `glamour`
+  for `tui-base` alone while `gui-base` uses something else would
+  reproduce the exact GUI/TUI divergence `CLAUDE.md` already names as "a
+  bug to fix, not an acceptable stylistic difference."
+
+Decision: use `goldmark` directly for its AST. One shared parser, one
+AST-walker per frontend — the identical shape `internal/lang/syntax`
+already established for tree-sitter (one real parse per buffer;
+`gui-base`'s `styleColor` and `tui-base`'s `tviewStyleTag` each
+independently map the same semantic output to their own toolkit). No new
+architectural pattern, just a second parser living next to the first.
+
+### "Just because we can, doesn't mean we should" — two gates, not one
+
+The real decision worth keeping for later: the first instinct was "could
+markdown become the UI's universal styling substrate — stop hand-building
+styling, inject markdown everywhere." Tested against this project's own
+working parts, it narrows to two separate questions, asked in order:
+
+**Gate 1 — does this surface need rich styling at all?** Status bar,
+gutter, cursor shape, mode indicator: no. These are live, structured
+fields recomputed every frame (mode, row, col), not authored prose. This
+question is answered by what the content *is* — cost never enters it.
+Forcing live structured fields through a document-rendering parser just
+to get one bold word would be this project's own already-named "false
+grouping" failure mode: a primitive whose contract needs an "except" was
+never one job.
+
+**Gate 2 — for surfaces that do want styling, is the cost acceptable
+here?** Only reached once Gate 1 says yes. `goldmark`'s real allocation
+cost above is a non-issue for content re-rendered on content-change (a
+hover response arriving, a preview re-rendering after an edit,
+debounced) — the same caching discipline the syntax highlighter already
+uses (reparse on edit, never per frame). It would be a real, measurable
+regression against this project's own idle-lightness goal run per Gio
+frame instead.
+
+Where this lands, concretely:
+
+- **Yes**: hover popups, the preview pane, a future `:help`, LSP
+  completion-item documentation — document-shaped prose, re-rendered on
+  content-change, not per-frame.
+- **No**: status bar, gutter, cursor, mode indicator — chrome, not prose;
+  decided by Gate 1 alone, cost never relevant.
+
+A second real caller was found before any code was written, not invented
+to justify the primitive afterward: `lspclient.HoverResult` already
+requests markdown-kind content from the server
+(`lifecycle.go`'s advertised `contentFormat`) and `Text()` currently
+discards the formatting — confirmed against a real `gopls` response
+(`func fmt.Println(...)` plus prose, shown as one unrendered block today).
+This clears this project's own minimal-primitives bar ("does at least one
+other already-real combination want to call this, not just
+hypothetically") before the preview pane itself is even built.
+
+### Verdict
+
+Add `goldmark` as a dependency. A new shared package wraps it (markdown
+source → AST); each frontend gets its own AST-walker, same split as
+syntax highlighting. First consumer: the Stage-2 preview pane, which this
+also resolves (see Roadmap/Current phase). Hover's own markdown rendering
+is real, confirmed-needed follow-on work — not done in this pass.
+
 ## Discrepancies — not technical debt, essence drift
 
 The user's own framing, worth stating exactly: these aren't deferred
@@ -398,13 +482,27 @@ pause for this."
 
 ## Status
 
-**Done, 2026-10-31.** Design conversation concluded, full audit completed,
-and all seven discrepancies above resolved in one pass: the directory
+**Parts 1-3 done, 2026-10-31.** Design conversation concluded, full audit
+completed, and all seven discrepancies resolved in one pass: the directory
 taxonomy is live, `autopairs` is folded in, and the Action/Executor
 pipeline now really does cover `:s///` and LSP-driven edits via the new
 `types.ActionApplyEdits`/`interpreter.ApplyEditsAction`/
 `offset.Replacement` primitive (deliberately not a composition of
 existing single-edit actions — see Part 2's "real dividing line" section
 for why). `BACKLOG.md` and `CLAUDE.md`'s Architecture section were brought
-back in sync with the new paths as part of the same pass, not left to
-drift again immediately. Not yet committed — pending the user's go-ahead.
+back in sync with the new paths as part of the same pass. Committed and
+pushed (4 commits, `cd38a14`..`1d6dbf4`).
+
+**Part 4 decided and shipped same day.** `goldmark` picked over `glamour`,
+the two-gate rule for where markdown rendering belongs settled, one real
+second caller (LSP hover) already found before any preview code existed.
+Built: `internal/lang/mdrender` (goldmark AST → tview tags) and a
+`:MdPreview`-toggled pane in `tui-base`'s `panesFlex`, re-parsing only on
+real content-change (Gate 2's own requirement, enforced structurally, not
+just stated). A real bug surfaced writing `mdrender`'s tests —
+`tview.Escape`'s bracket-pair detection breaks across goldmark's
+multi-fragment `ast.Text` output — fixed with a simpler, context-
+independent escape. Verified against a real rendered file in the real
+tagged `dp` binary, not just the unit suite. See `CLAUDE.md`'s Current
+phase for the full writeup. Hover's own markdown rendering remains named,
+confirmed-useful follow-on work, intentionally not bundled into this pass.

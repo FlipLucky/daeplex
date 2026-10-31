@@ -1363,6 +1363,56 @@ only accent border needs custom per-cell drawing rather than tview's
 built-in uniform `Box` border. See `ATOMIC_TASKS.md`/`BACKLOG.md` if this
 gets picked up as real work.
 
+**Markdown rendering decided and shipped as a preview pane, 2026-10-31** —
+resolving the Roadmap's long-open Stage 2 question ("is preview a narrow
+read-only render, or the first real multi-pane instance?"). Full reasoning
+in `DESIGN_PACKAGE_STRUCTURE.md`'s Part 4: `goldmark` was picked over
+`glamour` specifically because `glamour` only renders to ANSI terminal
+strings, a dead end for `gui-base`'s Gio-based rendering and a real risk of
+reproducing the GUI/TUI divergence this file already calls a bug — so the
+new `internal/lang/mdrender` package wraps `goldmark`'s AST directly, the
+same "one shared parser, one AST-walker per frontend" split
+`internal/syntax` already established for tree-sitter. A real, two-gate
+rule for *where* markdown rendering belongs came out of the same
+conversation (does a surface need rich styling at all, independent of
+cost; only then does cost decide) — status bar/gutter/cursor/mode stay
+plain structured text, hover/preview/future `:help`/completion docs are
+the real candidates. This pass built only the preview pane
+(`mdrender.ToTviewTags`, a goldmark-AST walker emitting tview's own tag
+format); hover's own markdown rendering is named, confirmed-useful
+follow-on work (a real second caller — `lspclient.HoverResult` already
+requests and discards server-sent markdown — found before any preview code
+was written), not bundled into this pass.
+
+`:MdPreview` toggles a third `tview.TextView` pane living in `tui-base`'s
+`panesFlex` (not a `splitview.Pane` — a preview has no cursor and never
+receives keystrokes, so it never needs `splitview`'s "independent cursor on
+a shared Editor" mechanism at all), peeked the same one-keystroke-early way
+`Workspace.HandleKey` already peeks `:e`/`:bnext` — but handled locally in
+`tui-base` itself rather than `Workspace`, since toggling a rendered pane is
+purely this frontend's presentation state, nothing Workspace or Editor has
+any business knowing about. Re-parses only when `cur.GetText()` actually
+changed since the last render (`renderContent` already only runs on a real
+edit or buffer switch, via `ChangeChan`/`Switched` — not on bare cursor
+motion — so this guard is the difference between "parse once per edit,"
+Part 4's own Gate 2 requirement, and "parse once per edit, plus once per
+keystroke that only moved the cursor"). A real bug caught while writing
+`mdrender`'s own tests, not in manual testing: `tview.Escape` only
+neutralizes a literal `"["` when it sees a complete `"[...]"` pair *within
+the one string it's given* — but goldmark hands back a failed
+link-shorthand attempt like `"[TODO]"` as several separate `ast.Text`
+fragments (`"a ["`, `"TODO"`, `"] marker"`), so escaping each fragment in
+isolation misses the pair that only exists once they're concatenated.
+Fixed with a simpler, context-independent `escapeBrackets` (unconditionally
+doubles every `"["` to `"[[]"`) instead of relying on `tview.Escape`'s
+pair-detection heuristic across fragment boundaries. Verified against a
+real rendered `.md` file in the real tagged `dp` binary via a scripted
+`tmux` session (not just the unit suite) — headings render bold in the
+brand accent colors, bold/italic/inline-code/lists/links/code
+fences/blockquotes all render correctly, and the preview updates live
+while typing. `go build`/`vet`/`gofmt`/`test ./...` all clean, plus both
+tagged `daeplex-gui`/`dp` builds.
+
 ## Module & toolchain
 
 - Module: `github.com/fliplucky/daeplex`

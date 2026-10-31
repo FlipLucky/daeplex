@@ -7,19 +7,26 @@ import (
 	"strings"
 )
 
-// commandNames lists every command executeCommandLocked recognizes, each
-// by its longest/clearest spelling (sorted, case-sensitive: the LspXxx
-// family's capital L sorts before the lowercase ones) — the set
-// command-name completion (T27, below) cycles through while the command
-// buffer still has no space in it. Deliberately not derived from
-// executeCommandLocked's own switch (that would need reflection or a
-// codegen step unwarranted for a dozen literal names) — keep this in sync
-// by hand when a command is added there, same discipline exmode.Parse
-// already assumes of its own callers.
+// commandNames lists every ":..." command this app recognizes anywhere —
+// not only executeCommandLocked's own switch, but also commands
+// intercepted a layer up before ever reaching it ("edit" by
+// *workspace.Workspace, "MdPreview" by tui-base itself) — each by its
+// longest/clearest spelling (sorted, case-sensitive: the LspXxx family's
+// capital L sorts before the lowercase ones). This is the set command-name
+// completion (T27, below) cycles through while the command buffer still
+// has no space in it; a user typing ":<Tab>" has no reason to care which
+// layer ends up handling the command, so this list intentionally isn't
+// scoped to just this package's own switch. Deliberately not derived from
+// any single switch (that would need reflection or a codegen step
+// unwarranted for a dozen literal names, and couldn't reach across
+// packages anyway) — keep this in sync by hand whenever a command is added
+// anywhere, same discipline exmode.Parse already assumes of its own
+// callers.
 var commandNames = []string{
 	"LspInstall",
 	"LspStatus",
 	"LspUninstall",
+	"MdPreview",
 	"edit",
 	"format",
 	"quit",

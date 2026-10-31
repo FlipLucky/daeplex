@@ -7,6 +7,7 @@ require (
 	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/odvcencio/gotreesitter v0.53.0
 	github.com/rivo/tview v0.42.0
+	github.com/yuin/goldmark v1.8.7
 )
 
 require (
