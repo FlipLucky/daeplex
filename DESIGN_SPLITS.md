@@ -1,11 +1,16 @@
 # Design note: splits
 
-**Status:** design in progress, not yet built. A multi-session design arc
-like `DESIGN_KEY_PIPELINE.md` was — this file is the live scratchpad,
-everything below is open to revision until its own Status section at the
-bottom says otherwise. Written down specifically so nothing from the
-design conversation gets lost (the explicit reason this file exists at
-all, not just chat history).
+**Status:** the hot-swappable-cursor mechanism below (see "The fix") is
+built and proven, as a deliberately minimal, flat, at-most-two-pane proof
+of concept — `internal/presentation/splitview`, wired into `tui-base` only.
+See `CLAUDE.md`'s Current-phase entry "Splits, proof of concept —
+2026-10-25" for the full writeup; this section used to say "design in
+progress, not yet built" well after that stopped being true — corrected
+2026-10-31 rather than left stale. Everything below this point still
+describes the original design conversation and is largely accurate to
+what shipped, but treat `CLAUDE.md`'s entry as the authoritative
+current-state record where the two disagree, per this project's own
+documentation conventions.
 
 ## Where this came from
 
@@ -339,8 +344,38 @@ today.
 
 ## Status
 
-Design sketch, actively open — nothing above is built yet. Next concrete
-step when picked back up: resolve the "Open questions" list above, then
-start with the async-correctness fix (small, mechanical, four sites,
-doesn't depend on anything else here) before the `Layout`/`Pane` tree
-itself.
+**Updated 2026-10-31** — this section was stale (still said "nothing above
+is built yet" after real code had already shipped on 2026-10-25); see
+`CLAUDE.md`'s "Splits, proof of concept" Current-phase entry for the full,
+up-to-date writeup.
+
+The async-correctness fix (four sites: hover, signature help, completion,
+format-apply) and the hot-swappable-cursor mechanism itself are both done
+and verified — `internal/presentation/splitview`, wired into `tui-base`.
+`<C-w>v` (split), `<C-w>w` (cycle focus), and `<C-w>h`/`<C-w>l` (spatial
+left/right) all work end to end against a real two-pane layout.
+
+This PoC is deliberately **not** the real v1 described above — it's a
+flat, at-most-two-pane array validating the cursor mechanism, not the
+recursive `Pane`/`Node`/`Layout` tree. Concretely still missing against
+this file's own v1 scope:
+
+- `<C-w>s` (horizontal split) and `<C-w>q` (close pane, collapsing its
+  sibling) — unimplemented.
+- Splitting to a *different* buffer — `Split()` today only ever duplicates
+  the pane's existing `Editor`; v1's own scope wants `:e` from a focused
+  pane to retarget just that pane.
+- The real N-way `Pane`/`Node`/`Layout` tree (`Axis`/`Children`) — this
+  PoC's flat two-slot array isn't it, by design.
+- `gui-base` has none of this wired in — TUI-only so far.
+- The "Open questions" list above (package name, deep-tree close/collapse
+  behavior, `Workspace.Buffers()`'s exact shape, resetting
+  `pendingReplace`/`pendingFindChar`/`findCharForward` on pane switch) is
+  still genuinely open — none of it was resolved by the PoC work, which
+  deliberately sidestepped needing answers to most of it at this smaller
+  scope.
+
+Next concrete step when picked back up: resolve the "Open questions" list
+above, then build the real `Layout`/`Pane` tree and the still-missing v1
+commands (`<C-w>s`/`<C-w>q`, cross-buffer splitting) on top of the
+now-proven cursor mechanism, then bring `gui-base` to parity.

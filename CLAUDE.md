@@ -1374,6 +1374,88 @@ only accent border needs custom per-cell drawing rather than tview's
 built-in uniform `Box` border. See `ATOMIC_TASKS.md`/`BACKLOG.md` if this
 gets picked up as real work.
 
+**Splits, proof of concept — 2026-10-25 (`DESIGN_SPLITS.md`)**: this entry
+is being added 2026-10-31, after the fact — the work itself landed in four
+commits on 2026-10-25 (`fb3d23e` design sketch, `bab067c` the async fix +
+PoC, `77aef27` tui-base wiring, `1e3a133` spatial focus) with no
+Current-phase writeup at the time, and `DESIGN_SPLITS.md`'s own Status
+section was left saying "nothing above is built yet" long after that
+stopped being true. Recorded now so this file stays the authoritative
+current-state record it's supposed to be, not because new work happened
+today.
+
+Per the Roadmap's own sequence decided when multi-buffer shipped
+(buffers → splits → oil.nvim file navigator → workspace search), splits
+were picked up next. `DESIGN_SPLITS.md` is the full design conversation;
+the short version: the riskiest part — real independent-cursor splits
+without rewriting `dispatch.go`/`interpreter`/`executor` to thread an
+explicit `*Cursor` through every call — turned out to need only one new
+`Editor` method, `UseCursor(c *Cursor)` (plus `ActiveCursor()`), swapping
+which `*Cursor` pointer `e.cursor` references under `e.mu`. Every existing
+line in the key-handling pipeline keeps reading `e.cursor` completely
+unchanged; it never needs to know the pointer underneath gets swapped
+between keystrokes. This is validated and real, not just designed: new
+package `internal/presentation/splitview` (`Pane{Editor, Cursor}`,
+`Layout`) is a deliberately minimal, flat, at-most-two-pane PoC — both
+panes always showing the *same* `*editor.Editor`, never a tree, never a
+different buffer per pane — built specifically to prove the hot-swap
+mechanism before investing in the real recursive `Pane`/`Node`/`Layout`
+shape `DESIGN_SPLITS.md` describes for actual v1.
+
+A real correctness risk the hot-swap introduces was audited before
+shipping, not assumed safe: an async LSP result (hover/signature-help/
+completion/format) dispatched while pane A had focus could land on
+whatever `e.cursor` points to *when the response arrives* — pane B's
+cursor, if focus moved on by then. Every `runAsync` call site in
+`internal/editor` touching `Cursor` (hover, signature help, completion,
+format-apply — 4 sites) was fixed the same way `maybeTriggerLSPCompletion`
+already handled its own generation-counter staleness: capture
+`targetCursor := e.cursor` at dispatch time, write through that captured
+pointer in the apply closure instead of `ed.cursor` fresh at apply-time.
+
+Wired into `tui-base` only (not `gui-base` — a real, named parity gap, not
+an oversight): `<C-w>v` splits the focused pane's buffer into a second
+pane with its own independent cursor; `<C-w>w` cycles focus; `<C-w>h`/
+`<C-w>l` jump straight to the left/right pane (unambiguous without real
+geometry at this PoC's flat, always-vertical, at-most-two-pane shape —
+`<C-w>j`/`<C-w>k` stay unbound, since there's no top/bottom split to move
+between yet). `renderContent`'s per-buffer rendering became `renderPane`,
+called once per visible pane with the shared Editor's active cursor
+swapped to that pane first, so every per-cursor accessor (`GetCursor`,
+`SubstitutePreviewRanges`, `VisualSelectionRanges`, hover/completion/
+register-overview) genuinely reads that pane's own state — a second
+`TextView` plus a horizontal `Flex` (collapsed to 0 width unsplit) renders
+both panes side by side, with the terminal's native cursor and the hover
+popup following whichever pane is focused. A real deadlock was found and
+fixed during live `tmux` testing: calling `app.QueueUpdateDraw` from
+inside `SetInputCapture` (already running on tview's own event-loop
+goroutine) blocks forever sending to a channel only that same goroutine
+drains — fixed by calling `renderContent()` directly there instead, no
+goroutine hop needed. A related gap surfaced the same way: `Split`/
+`FocusNext` are pure `splitview` state changes with no Editor-level
+signal, so the existing `ChangeChan`/`Switched`-driven redraw loop never
+noticed one happened — the status bar only caught up on the next
+keystroke that touched the Editor, not the window command itself.
+
+Verified via `internal/splitview`'s own unit tests (including
+`<C-w>h`/`<C-w>l`'s idempotence — repeated presses stay put rather than
+toggling, unlike `FocusNext`) and live `tmux` sessions against the real
+tagged `dp` binary: split, independent cursor movement in each pane,
+shared content (an edit in pane 2 appears in pane 1 — same underlying
+document), and focus-cycling all behave correctly with immediate visual
+feedback.
+
+**Explicitly not done yet, named rather than silently absent** — the gap
+between this PoC and `DESIGN_SPLITS.md`'s own stated v1 scope: `<C-w>s`
+(horizontal split) and `<C-w>q` (close pane, collapsing its sibling) are
+unimplemented; `Split()` only ever duplicates the *same* buffer today — v1
+wants `:e` from inside a focused pane to retarget just that pane to a
+different buffer; the real N-way `Pane`/`Node`/`Layout` tree (with
+`Axis`/`Children`) doesn't exist yet, this PoC's flat two-slot array is
+deliberately not it; and `gui-base` has none of this wired in at all.
+`DESIGN_SPLITS.md`'s own Status section has been corrected to reflect
+this rather than its prior "nothing built yet."
+
 **Markdown rendering decided and shipped as a preview pane, 2026-10-31** —
 resolving the Roadmap's long-open Stage 2 question ("is preview a narrow
 read-only render, or the first real multi-pane instance?"). Full reasoning
