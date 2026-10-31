@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/fliplucky/daeplex/internal/piecetable"
+	"github.com/fliplucky/daeplex/internal/document/piecetable"
 )
 
 func main() {

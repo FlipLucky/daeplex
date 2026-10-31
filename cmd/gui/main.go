@@ -4,9 +4,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/fliplucky/daeplex/internal/editor"
-	guibase "github.com/fliplucky/daeplex/internal/gui-base"
-	"github.com/fliplucky/daeplex/internal/workspace"
+	"github.com/fliplucky/daeplex/internal/core/editor"
+	"github.com/fliplucky/daeplex/internal/core/workspace"
+	guibase "github.com/fliplucky/daeplex/internal/frontend/gui-base"
 )
 
 func main() {
