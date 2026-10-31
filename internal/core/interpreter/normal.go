@@ -70,6 +70,18 @@ type BracketContext struct {
 	Skip func(offset int) bool
 }
 
+// TagContext is a read-only snapshot used only by it/at (HTML's tag text
+// object, T43) — same snapshot pattern as BracketContext: Processor never
+// touches internal/lang/syntax's Highlighter directly. RangeAt resolves
+// the inner/around ranges of whichever tag element encloses a byte offset;
+// ok is false when none does (not HTML, no tree yet, or the cursor sits
+// outside any element). A nil RangeAt (no highlighter at all) makes every
+// Tag resolution fail closed, the same "no style info, nothing to act on"
+// shape BracketContext's nil Skip already has.
+type TagContext struct {
+	RangeAt func(at int) (inner, around offset.TextRange, ok bool)
+}
+
 // VisualContext is a read-only snapshot of Visual mode's current selection
 // state (anchor byte offset + kind) — same snapshot pattern as
 // PasteClipboard/BracketContext. ProcessVisual never touches *editor.Cursor
@@ -280,7 +292,7 @@ func ResolveFindChar(doc offset.Document, at Position, target rune, forward bool
 // Returns nil only for a Verb this function doesn't know about,
 // which shouldn't happen for anything keyengine's own whitelist tables
 // actually produce.
-func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, clip PasteClipboard, bracket BracketContext) []Action {
+func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, clip PasteClipboard, bracket BracketContext, tag TagContext) []Action {
 	count := cmd.Count
 	if count < 1 {
 		count = 1
@@ -290,11 +302,11 @@ func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Pos
 	case keyengine.Move:
 		return one(resolveMove(doc, cmd.Noun, at, count, cmd.HasCount, bracket))
 	case keyengine.Delete:
-		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count)
+		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count, tag)
 		linewise := cmd.Noun == keyengine.LineMotion
 		return one(DeleteAction{Rng: rng, Ok: ok, Register: clipboardregister.Delete, StoreInRegister: ok, IsLinewise: linewise, Named: cmd.Register})
 	case keyengine.Change:
-		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count)
+		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count, tag)
 		if !ok {
 			return nil
 		}
@@ -307,7 +319,7 @@ func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Pos
 			EnterInsertAction{},
 		}
 	case keyengine.Yank:
-		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count)
+		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count, tag)
 		linewise := cmd.Noun == keyengine.LineMotion
 		return one(YankAction{Rng: rng, Ok: ok, IsLinewise: linewise, Named: cmd.Register, Register: clipboardregister.Yank})
 	case keyengine.Undo:
@@ -456,7 +468,7 @@ func one(a Action) []Action { return []Action{a} }
 // but via EnterInsertAction's own mode switch, whose generic "leaving
 // Visual" cleanup (Cursor.SetMode) already clears the anchor/kind as a
 // side effect — no explicit ExitVisualAction needed there.
-func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, visual VisualContext, bracket BracketContext) []Action {
+func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, visual VisualContext, bracket BracketContext, tag TagContext) []Action {
 	count := cmd.Count
 	if count < 1 {
 		count = 1
@@ -550,7 +562,7 @@ func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Pos
 		// key starts the sequence into the Verb slot regardless of what it
 		// means (see CreateVisualModeVerbs's doc comment). Stays in Visual
 		// mode afterward — no ExitVisualAction, unlike d/x/y/c.
-		rng, ok := resolveRange(doc, cmd.Verb, cmd.Noun, at.ByteOffset, count)
+		rng, ok := resolveRange(doc, cmd.Verb, cmd.Noun, at.ByteOffset, count, tag)
 		if !ok {
 			return nil
 		}
@@ -891,19 +903,34 @@ func resolveGotoLine(doc offset.Document, row int) MoveAction {
 // cw≈ce quirk is deliberately not replicated) — whatever the motion
 // sweeps is what gets acted on, uniformly for d/c/y. See
 // resolveMotionRange.
-func resolveRange(doc offset.Document, modifier, noun keyengine.KeyActionName, at int, count int) (offset.TextRange, bool) {
+func resolveRange(doc offset.Document, modifier, noun keyengine.KeyActionName, at int, count int, tag TagContext) (offset.TextRange, bool) {
 	if modifier == keyengine.None && noun != keyengine.LineMotion {
 		return resolveMotionRange(doc, noun, at, count)
 	}
 	if count < 1 {
 		count = 1
 	}
-	rng, ok := resolveRangeOnce(doc, modifier, noun, at)
+	rng, ok := resolveRangeOnce(doc, modifier, noun, at, tag)
 	if !ok {
 		return offset.TextRange{}, false
 	}
+	if noun == keyengine.Tag {
+		// The generic forward-chaining below (continue resolving from
+		// rng.Start+rng.Length, extend the end) assumes each repetition
+		// starts no earlier than the last one ended — true for diw/dd's own
+		// "next unit forward" shape, but not for nested tags: a parent
+		// element's start can sit *before* the inner one's (e.g. the outer
+		// "<div>" in "<div><p>x</p></div>"), which the chain math can't
+		// express without silently producing a wrong, truncated range.
+		// Real vim's own 2it/2at walks N ancestor levels instead — a
+		// genuinely different algorithm this doesn't implement; a count on
+		// a tag object is deliberately ignored (acts like count=1) rather
+		// than risk a wrong answer. Not something Stage 2's own ask (a
+		// plain cit) needed.
+		return rng, true
+	}
 	for i := 1; i < count; i++ {
-		next, _ := resolveRangeOnce(doc, modifier, noun, rng.Start+rng.Length)
+		next, _ := resolveRangeOnce(doc, modifier, noun, rng.Start+rng.Length, tag)
 		rng.Length = (next.Start + next.Length) - rng.Start
 	}
 	return rng, true
@@ -995,7 +1022,7 @@ func trimTrailingNewline(doc offset.Document, rng offset.TextRange) offset.TextR
 
 // resolveRangeOnce is resolveRange's single-application resolver — same
 // no-op-on-unknown contract as resolveMotion.
-func resolveRangeOnce(doc offset.Document, modifier, noun keyengine.KeyActionName, at int) (offset.TextRange, bool) {
+func resolveRangeOnce(doc offset.Document, modifier, noun keyengine.KeyActionName, at int, tag TagContext) (offset.TextRange, bool) {
 	switch {
 	case modifier == keyengine.Inside && noun == keyengine.Word:
 		return offset.RangeInnerWord(doc, at), true
@@ -1003,6 +1030,18 @@ func resolveRangeOnce(doc offset.Document, modifier, noun keyengine.KeyActionNam
 		return offset.RangeAroundWord(doc, at), true
 	case modifier == keyengine.Inside && noun == keyengine.Paragraph:
 		return offset.RangeInnerParagraph(doc, at), true
+	case modifier == keyengine.Inside && noun == keyengine.Tag:
+		if tag.RangeAt == nil {
+			return offset.TextRange{}, false
+		}
+		inner, _, ok := tag.RangeAt(at)
+		return inner, ok
+	case modifier == keyengine.Around && noun == keyengine.Tag:
+		if tag.RangeAt == nil {
+			return offset.TextRange{}, false
+		}
+		_, around, ok := tag.RangeAt(at)
+		return around, ok
 	case noun == keyengine.LineMotion:
 		return offset.RangeLine(doc, at), true
 	default:

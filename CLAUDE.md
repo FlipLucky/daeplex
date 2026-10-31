@@ -157,14 +157,20 @@ than jumping straight to full IDE breadth.
    stage (viewport slicing, `Spans`' O(log n + k) fix, this file's whole
    "per-keystroke work stays bounded to the visible range" rule), not a
    specific benchmark number this stage waits on before being "reached."
-2. **Single markdown/HTML file with preview**: the deliberately
-   low-entry-cost proof case for treesitter + LSP — one file, one grammar,
-   no multi-file complexity. HTML specifically because it lets vim motions
-   extend into syntax-tree-aware text objects (e.g. "change inside tag"),
-   a good stepping stone from character/word-based resolvers to tree-based
-   ones. Open question not yet resolved: whether "preview" is a narrow,
-   special-cased read-only render or the first real instance of multi-pane
-   arriving a stage early — worth a deliberate decision, not a default.
+2. ~~**Single markdown/HTML file with preview**~~ **Reached 2026-10-31** —
+   the deliberately low-entry-cost proof case for treesitter + LSP: one
+   file, one grammar, no multi-file complexity. Both halves this stage
+   named are now shipped: the markdown preview pane (built, scroll-synced,
+   benchmarked — see Current phase's 2026-10-31 entries), and HTML's own
+   syntax-tree-aware text objects (`it`/`at`, "change inside tag" — T43a,
+   see Current phase and `ATOMIC_TASKS.md`), the stepping stone from
+   character/word-based resolvers to tree-based ones. The stage's own open
+   question is resolved too: "preview" turned out to be the first real
+   multi-pane instance (a second `tview.TextView` pane, not a special-cased
+   narrow render), a deliberate decision made during that work, not a
+   default. The broader per-language text-object suite (`if`/`af`/`ic`/`ac`/
+   parameter objects — T43b) stays explicitly out of this stage's scope,
+   same gated, awaiting-a-decision status as before.
 3. **Multi-file / workspace** — multi-buffer core **done 2026-10-18**
    (`internal/workspace`, see Current phase's T56 entry), exactly the shape
    proposed here: one self-contained buffer unit (`Editor`, unchanged) per
@@ -1684,6 +1690,61 @@ command to remember after a refactor. Next: extend the same pattern to
 the rest of the major-path list (Visual mode select/yank/paste, `:s///`,
 workspace buffer switching) — deliberately not attempted in this same
 pass, so each addition stays reviewable on its own.
+
+**Stage 2 completed — HTML tag text objects, 2026-10-31 (T43a)**: the one
+real deliverable Stage 2's preview work left open (see above) — `it`/`at`,
+real vim's "inner tag"/"around tag," e.g. `cit` on `<div>hello</div>`
+changes just `hello`. Scoped down from `ATOMIC_TASKS.md`'s original T43
+("`if`/`af`, `ic`/`ac`, parameter objects"), which investigation had
+already found splits into two genuinely different shapes: a general
+per-language text-object query suite (real, ongoing-maintenance scope —
+`gotreesitter` ships no `TextObjectsQuery` for any language, so DaePlex
+would have to author and maintain its own `@function.inner`/
+`@parameter.inner`-convention queries), versus this one — a structural
+ancestor-walk over node types HTML's own grammar already names directly
+(confirmed via a throwaway parse probe before writing anything: an
+`element` node whose first child is `start_tag`/`self_closing_tag` and
+whose last child, if present, is `end_tag`), needing zero query authoring
+at all. New `syntax.Highlighter.TagRangeAt(at)` walks up from the smallest
+node at a byte offset to the nearest `element` ancestor and returns both
+the "inner" range (between the open and close tags) and "around" (the
+whole element); a self-closing/void element correctly has no inner (it's
+empty, not an error). Wired in with the exact same read-only-snapshot
+pattern `interpreter.BracketContext` already established for `%`
+(T44, 2026-10-18): a new `interpreter.TagContext{
+RangeAt}` built by `editor.tagRangeAtLocked` and passed into
+`ProcessNormal`/`ProcessVisual` from `dispatch.go`, so Processor still
+never imports `internal/lang/syntax` directly. `keyengine.Tag` is a new
+Noun, reachable only after `i`/`a` — never bare, since real vim's bare `t`
+is the unrelated till-motion (not implemented in this codebase at all,
+so there's no actual key collision, just two grammar slots for the same
+letter, the same split `w` already has between bare-Move and after-`i`/`a`).
+
+One real limitation found and deliberately accepted, not silently
+mishandled: `resolveRange`'s generic count-chaining (built for `3diw`/
+`3dd`'s "next unit forward, extend the end" shape) cannot correctly
+express real vim's `2it`/`2at` — walking up to the Nth *ancestor* tag,
+whose start byte can sit *before* the inner range's own start, which the
+chain math has no way to express without silently truncating the range.
+Confirmed by working through the actual byte math for a nested-tag case
+before shipping, not discovered by it breaking live: a count on a tag
+object is simply ignored (`d2at` behaves exactly like `dat`) rather than
+risk a wrong answer — a real, honest scope cut, not an oversight (see
+`resolveRange`'s own doc comment and `ATOMIC_TASKS.md`'s T43a writeup).
+
+Verified at three layers, each confirmed to actually fail against a
+deliberately broken `tagRangeAtLocked` (forced to always return `ok=false`)
+before confirming they pass again once reverted — not just written to
+pass: `internal/lang/syntax`'s own `TagRangeAt` unit tests (inner/around
+extraction, innermost-ancestor-wins on `<p>hello <b>world</b></p>`,
+self-closing/void tags, no tree yet fails closed), `internal/core/editor`'s
+real `HandleKey`-path tests (`dit`/`dat`/`cit`/`vat`, nested tags, a
+plain-text buffer correctly no-ops, count-ignored), and a live `tmux`
+session against the real tagged `dp` binary (`dit` removing nested
+`<b>world</b>`'s content, `cit` + typing landing exactly in the gap, `vat`
++ `y` + `:registers` showing the whole yanked `<div>...</div>` element).
+`go build`/`vet`/`gofmt`/`test ./...` and `go test -race` both clean, plus
+both tagged `daeplex-gui`/`dp` builds.
 
 ## Module & toolchain
 

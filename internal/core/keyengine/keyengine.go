@@ -56,6 +56,17 @@ const (
 	WordEnd
 	LineMotion
 	Paragraph
+	// Tag (T43, scoped to Stage 2's actual ask rather than the full
+	// per-language if/af/parameter-object suite T43 originally described —
+	// see its ATOMIC_TASKS.md entry for why that bigger scope stayed
+	// deferred) is HTML's it/at — "inner tag"/"around tag," e.g. cit on
+	// <div>text</div> changes just "text." Reachable only after Inside/
+	// Around, never bare: real vim reserves bare `t` for the till-forward
+	// motion, a different feature this codebase hasn't implemented at all,
+	// so there's no actual collision to resolve — just two grammar slots
+	// for the same letter, the same split `w` already has (bare Move vs.
+	// after i/a).
+	Tag
 	RuneMotion // declared for future use (x etc.) — not yet registered in any table
 
 	// h/l are plain single-char motions — CharBackward/CharForward resolve

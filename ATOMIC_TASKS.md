@@ -1074,31 +1074,54 @@ quick wins first, the item needing real investigation last:
       confirms leaving Insert mode does. `go build`/`vet`/`gofmt`/
       `test ./...` all clean, plus both tagged `gui-local`/`tui-local`
       builds. (M, 🧠)
-- [ ] **T43 — Treesitter-powered text objects** (`if`/`af`, `ic`/`ac`,
-      parameter objects). **Scope investigation done 2026-10-18 — confirmed
-      the bigger-scope case, not the small one.** Read `gotreesitter`
-      v0.53.0's own `grammars` package source directly (`registry.go`):
-      `LangEntry` carries `HighlightQuery` and `TagsQuery` fields, each
-      populated per language — but **no `TextObjectsQuery` field or
-      bundled `textobjects.scm`-convention query exists anywhere in the
-      module** (confirmed by reading the actual struct definition, not
-      just grepping for `.scm` files, which found none at all — the
-      library embeds its query strings as Go string literals, not loose
-      files, so a filename search alone would have been misleading).
-      `gotreesitter.NewQuery(source, lang)` — the same general-purpose
-      tree-sitter query compiler `HighlightQuery`/`TagsQuery` themselves
-      compile through — works against *any* query string, so this is
-      mechanically possible; the gap is purely that nobody has written
-      the actual `@function.outer`/`@function.inner`/`@parameter.inner`-
-      convention queries for any of this project's curated languages.
-      Implementing this for real means DaePlex authoring and
-      maintaining its own per-language text-object query set (at minimum
-      Go, likely TS/JS next) — a genuinely bigger, ongoing-maintenance
-      scope than "wire up an existing query," confirmed rather than
-      assumed. **Awaiting a user decision on whether to take this on now
-      given the real scope, or defer it** — not proceeding to
-      implementation without that, per this task's own original gate.
-      (L, 🧠 — scope confirmed bigger; awaiting go/no-go)
+- [x] **T43a — HTML tag text objects (`it`/`at`), done 2026-10-31.** The
+      slice of T43 the Roadmap's own Stage 2 actually named ("HTML
+      specifically because it lets vim motions extend into syntax-tree-
+      aware text objects, e.g. 'change inside tag'") — scoped down from
+      T43's full original ask once that ask turned out to split into two
+      genuinely different shapes, not one. The bigger-scope half (below,
+      now T43b) needs DaePlex to author and maintain its own per-language
+      `@function.inner`/`@parameter.inner`-convention query set, since
+      `gotreesitter` v0.53.0 ships no `TextObjectsQuery` for any language
+      (confirmed by reading `grammars/registry.go` directly). Tag objects
+      need none of that: HTML's own grammar already names the shape
+      directly as real node types (`element` containing a `start_tag`/
+      `self_closing_tag` and an optional `end_tag` — confirmed via a throw-
+      away parse probe, not assumed), so `syntax.Highlighter.TagRangeAt`
+      is a plain ancestor-walk over nodes that already exist, no query
+      authoring at all. New `keyengine.Tag` noun, reachable only after
+      `i`/`a` (never bare — real vim reserves bare `t` for the unrelated
+      till-motion, not implemented here, so no collision); new
+      `interpreter.TagContext{RangeAt}`, same read-only-snapshot pattern
+      `BracketContext` already established for `%` — Processor still never
+      touches `internal/lang/syntax` directly. One real limitation found
+      and accepted rather than silently mishandled: resolveRange's generic
+      count-chaining (built for `3diw`/`3dd`'s "next unit forward" shape)
+      can't correctly express real vim's `2it`/`2at` (walk up to the Nth
+      *ancestor*, whose start can sit *before* the inner range's own
+      start) — a count on a tag object is deliberately ignored rather than
+      risk silently producing a truncated range; `d2at` acts exactly like
+      `dat`. Verified at three layers: `syntax`'s own `TagRangeAt` unit
+      tests (inner/around extraction, innermost-ancestor-wins on nested
+      tags, self-closing/void tags correctly have no inner, no tree yet
+      fails closed), `editor`'s real `HandleKey`-path tests (`dit`/`dat`/
+      `cit`/`vat`, nesting, self-closing no-op, a plain-text buffer no-op,
+      count-ignored) — all confirmed to actually fail against a
+      deliberately broken `tagRangeAtLocked` and pass again once reverted,
+      not just written to pass — and a live `tmux` session against the
+      real tagged `dp` binary. `go build`/`vet`/`gofmt`/`test ./...` and
+      `go test -race` both clean, plus both tagged `daeplex-gui`/`dp`
+      builds.
+- [ ] **T43b — The rest of T43**: `if`/`af`, `ic`/`ac`, parameter objects
+      for Go/TS/JS, needing DaePlex to author and maintain its own
+      per-language text-object query set (`gotreesitter` ships none) — a
+      genuinely bigger, ongoing-maintenance scope than T43a's structural
+      tag-pair walk, confirmed rather than assumed (see T43a's own
+      reasoning for exactly why these two ended up as different shapes).
+      Awaiting a user decision on whether to take this on given the real
+      scope, or defer it further — not proceeding without that, per this
+      task's own original gate. (L, 🧠 — scope confirmed bigger; awaiting
+      go/no-go)
 - [x] **T50 — GUI popup pixel-exact positioning.** Done 2026-10-18. Gio has
       no API to query "where did this already-drawn thing actually land" —
       it's push-only/stack-based, nothing to introspect after the fact —

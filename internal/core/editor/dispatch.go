@@ -194,7 +194,11 @@ func (e *Editor) handleNormalModeKey(key string) bool {
 	if cmd.Noun == keyengine.BracketMatch {
 		bracket.Skip = e.bracketMatchSkipLocked(pos.ByteOffset)
 	}
-	actions := interpreter.ProcessNormal(cmd, e.table, pos, clip, bracket)
+	tag := interpreter.TagContext{}
+	if cmd.Noun == keyengine.Tag {
+		tag.RangeAt = e.tagRangeAtLocked
+	}
+	actions := interpreter.ProcessNormal(cmd, e.table, pos, clip, bracket, tag)
 	e.dispatchLocked(toExecutorActions(actions)...)
 	e.mu.Unlock()
 	return true
@@ -224,7 +228,11 @@ func (e *Editor) handleVisualModeKey(key string) bool {
 	if cmd.Noun == keyengine.BracketMatch {
 		bracket.Skip = e.bracketMatchSkipLocked(pos.ByteOffset)
 	}
-	actions := interpreter.ProcessVisual(cmd, e.table, pos, visual, bracket)
+	tag := interpreter.TagContext{}
+	if cmd.Noun == keyengine.Tag {
+		tag.RangeAt = e.tagRangeAtLocked
+	}
+	actions := interpreter.ProcessVisual(cmd, e.table, pos, visual, bracket, tag)
 	e.dispatchLocked(toExecutorActions(actions)...)
 	e.mu.Unlock()
 	return true

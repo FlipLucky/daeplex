@@ -26,25 +26,28 @@ func CreateNormalModeModifiers() map[string]KeyAction {
 	return map[string]KeyAction{
 		"i": {
 			name:              Inside,
-			allowedKeyActions: map[string]KeyActionName{"w": Word, "p": Paragraph},
+			allowedKeyActions: map[string]KeyActionName{"w": Word, "p": Paragraph, "t": Tag},
 		},
 		"a": {
 			name:              Around,
-			allowedKeyActions: map[string]KeyActionName{"w": Word},
+			allowedKeyActions: map[string]KeyActionName{"w": Word, "t": Tag},
 		},
 	}
 }
 
 // CreateNormalModeNouns covers nouns reached directly after a verb with no
 // modifier (dw, db, de, dh, dl — a "short delete," see
-// interpreter.resolveMotionRange) or after a modifier (diw, dip). w/p are
-// the only ones that pair with a modifier today; b/e/h/l are only ever
+// interpreter.resolveMotionRange) or after a modifier (diw, dip, dit). w/p/t
+// are the only ones that pair with a modifier today; b/e/h/l are only ever
 // reached bare, same identities Move's own silent-motion directs already
-// use (see CreateNormalModeDirects).
+// use (see CreateNormalModeDirects). t has no bare-direct counterpart at
+// all (see Tag's own doc comment in keyengine.go) — it only ever appears
+// here, reached exclusively through i/a.
 func CreateNormalModeNouns() map[string]KeyAction {
 	return map[string]KeyAction{
 		"w": {name: Word, allowedKeyActions: map[string]KeyActionName{}},
 		"p": {name: Paragraph, allowedKeyActions: map[string]KeyActionName{}},
+		"t": {name: Tag, allowedKeyActions: map[string]KeyActionName{}},
 		"b": {name: WordBackward, allowedKeyActions: map[string]KeyActionName{}},
 		"e": {name: WordEnd, allowedKeyActions: map[string]KeyActionName{}},
 		"h": {name: CharBackward, allowedKeyActions: map[string]KeyActionName{}},

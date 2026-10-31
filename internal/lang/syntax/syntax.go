@@ -276,6 +276,61 @@ func (h *Highlighter) IndentStringAt(at int) string {
 	return strings.Repeat("\t", depth)
 }
 
+// TagRangeAt returns the "inner"/"around" ranges of the tag element
+// enclosing byte offset at — HTML's it/at text objects ("inner tag"/
+// "around tag"), e.g. on "<div>text</div>" at any offset inside it: inner
+// is "text" (between the start and end tags), around is the whole
+// "<div>text</div>" span including both tags. ok is false when there's no
+// tree yet, or when no ancestor "element" node encloses at.
+//
+// Confirmed against a real parse (not guessed) that gotreesitter's html
+// grammar names an opening/closing tag pair exactly this way: an "element"
+// node whose first child is "start_tag" or "self_closing_tag" and whose
+// last child, if present, is "end_tag" — a void or self-closing element
+// (<br/>, <img src="x">) has no end_tag at all, and inner is correctly
+// empty (zero-length, right after the open tag) in that case, matching
+// real vim's own "nothing to act on" behavior there. This only ever
+// succeeds where the tree actually has an "element" node shaped this way —
+// today that's HTML alone in the curated grammar set — so no separate
+// per-language gate is needed; an unsupported language's tree simply never
+// produces a match.
+func (h *Highlighter) TagRangeAt(at int) (inner, around offset.TextRange, ok bool) {
+	if h.tree == nil {
+		return offset.TextRange{}, offset.TextRange{}, false
+	}
+	b := uint32(at)
+	for n := h.tree.RootNode().DescendantForByteRange(b, b); n != nil; n = n.Parent() {
+		if n.Type(h.lang) != "element" {
+			continue
+		}
+		var openEnd, closeStart uint32
+		foundOpen, foundClose := false, false
+		for i := 0; i < n.ChildCount(); i++ {
+			switch child := n.Child(i); child.Type(h.lang) {
+			case "start_tag", "self_closing_tag":
+				if !foundOpen {
+					openEnd = child.EndByte()
+					foundOpen = true
+				}
+			case "end_tag":
+				closeStart = child.StartByte()
+				foundClose = true
+			}
+		}
+		if !foundOpen {
+			continue
+		}
+		innerEnd := openEnd
+		if foundClose {
+			innerEnd = closeStart
+		}
+		return offset.TextRange{Start: int(openEnd), Length: int(innerEnd - openEnd)},
+			offset.TextRange{Start: int(n.StartByte()), Length: int(n.EndByte() - n.StartByte())},
+			true
+	}
+	return offset.TextRange{}, offset.TextRange{}, false
+}
+
 // styleFor maps a tree-sitter capture name (e.g. "keyword", "function.method")
 // down to a types.Style by prefix — captures are conventionally dotted,
 // more specific toward the right, and a consumer is free to match at

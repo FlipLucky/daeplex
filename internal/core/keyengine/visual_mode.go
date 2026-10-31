@@ -18,11 +18,11 @@ func CreateVisualModeVerbs() map[string]KeyAction {
 	return map[string]KeyAction{
 		"i": {
 			name:              Inside,
-			allowedKeyActions: map[string]KeyActionName{"w": Word, "p": Paragraph},
+			allowedKeyActions: map[string]KeyActionName{"w": Word, "p": Paragraph, "t": Tag},
 		},
 		"a": {
 			name:              Around,
-			allowedKeyActions: map[string]KeyActionName{"w": Word},
+			allowedKeyActions: map[string]KeyActionName{"w": Word, "t": Tag},
 		},
 	}
 }
@@ -45,6 +45,7 @@ func CreateVisualModeNouns() map[string]KeyAction {
 	return map[string]KeyAction{
 		"w": {name: Word, allowedKeyActions: map[string]KeyActionName{}},
 		"p": {name: Paragraph, allowedKeyActions: map[string]KeyActionName{}},
+		"t": {name: Tag, allowedKeyActions: map[string]KeyActionName{}},
 	}
 }
 

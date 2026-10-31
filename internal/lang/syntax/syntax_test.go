@@ -290,6 +290,88 @@ func TestSpansEmptyRangesReturnsNil(t *testing.T) {
 	}
 }
 
+func TestTagRangeAtInnerAndAround(t *testing.T) {
+	h, ok := New(types.LanguageHTML)
+	if !ok {
+		t.Fatal("New(LanguageHTML) failed")
+	}
+	src := []byte("<div>hello</div>")
+	h.Reparse(src)
+
+	at := len("<div>hel") // inside "hello"
+	inner, around, ok := h.TagRangeAt(at)
+	if !ok {
+		t.Fatalf("TagRangeAt(%d) ok = false, want true", at)
+	}
+	if got := string(src[inner.Start : inner.Start+inner.Length]); got != "hello" {
+		t.Errorf("inner = %q, want %q", got, "hello")
+	}
+	if got := string(src[around.Start : around.Start+around.Length]); got != "<div>hello</div>" {
+		t.Errorf("around = %q, want %q", got, "<div>hello</div>")
+	}
+}
+
+func TestTagRangeAtPicksInnermostAncestor(t *testing.T) {
+	h, ok := New(types.LanguageHTML)
+	if !ok {
+		t.Fatal("New(LanguageHTML) failed")
+	}
+	src := []byte("<p>hello <b>world</b></p>")
+	h.Reparse(src)
+
+	at := len("<p>hello <b>wor") // inside "world", nested inside <b>
+	inner, _, ok := h.TagRangeAt(at)
+	if !ok {
+		t.Fatalf("TagRangeAt(%d) ok = false, want true", at)
+	}
+	if got := string(src[inner.Start : inner.Start+inner.Length]); got != "world" {
+		t.Errorf("inner = %q, want %q (the innermost <b> element, not the outer <p>)", got, "world")
+	}
+}
+
+func TestTagRangeAtSelfClosingTagHasNoInner(t *testing.T) {
+	h, ok := New(types.LanguageHTML)
+	if !ok {
+		t.Fatal("New(LanguageHTML) failed")
+	}
+	src := []byte("<div><br/></div>")
+	h.Reparse(src)
+
+	at := len("<div><br") // inside the self-closing <br/>
+	inner, around, ok := h.TagRangeAt(at)
+	if !ok {
+		t.Fatalf("TagRangeAt(%d) ok = false, want true", at)
+	}
+	if inner.Length != 0 {
+		t.Errorf("inner.Length = %d, want 0 (a self-closing tag has no content to be inside of)", inner.Length)
+	}
+	if got := string(src[around.Start : around.Start+around.Length]); got != "<br/>" {
+		t.Errorf("around = %q, want %q", got, "<br/>")
+	}
+}
+
+func TestTagRangeAtOutsideAnyElementFails(t *testing.T) {
+	h, ok := New(types.LanguageHTML)
+	if !ok {
+		t.Fatal("New(LanguageHTML) failed")
+	}
+	h.Reparse([]byte("<div>hello</div>"))
+
+	if _, _, ok := h.TagRangeAt(1000); ok {
+		t.Errorf("TagRangeAt(1000) ok = true for an offset past the document, want false")
+	}
+}
+
+func TestTagRangeAtBeforeAnyReparseFails(t *testing.T) {
+	h, ok := New(types.LanguageHTML)
+	if !ok {
+		t.Fatal("New(LanguageHTML) failed")
+	}
+	if _, _, ok := h.TagRangeAt(0); ok {
+		t.Errorf("TagRangeAt() on a fresh Highlighter ok = true, want false (no tree yet)")
+	}
+}
+
 // BenchmarkSpansOnLargeDocument gives a real, measurable number for the
 // fix described in Spans' doc comment — the exact scenario the user hit
 // live (repeated j through a large file: many render frames, each calling
