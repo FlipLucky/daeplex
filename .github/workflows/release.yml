@@ -74,14 +74,12 @@ jobs:
           # arm64 is native to macos-latest runners; amd64 is a same-OS
           # cross-arch build via Xcode's own SDK (not cross-compiling to a
           # different OS, which is the part that genuinely can't work from
-          # Linux) — expected to work out of the box, but this is the first
-          # real run exercising it, so watch this step on the first tagged
-          # release in particular.
+          # Linux) — confirmed working via the v0.1.0 release run.
           for ARCH in arm64 amd64; do
             GOOS=darwin GOARCH="$ARCH" CGO_ENABLED=1 go build \
               -tags "${GRAMMAR_TAGS}" -ldflags="-s -w" \
               -o dist-macos/daeplex-gui ./cmd/gui
-            tar -C dist-macos -czf "daeplex_${VERSION}_darwin_${ARCH}.tar.gz" daeplex-gui
+            tar -C dist-macos -czf "daeplex-gui_${VERSION}_darwin_${ARCH}.tar.gz" daeplex-gui
           done
 
       - name: Upload macOS GUI binaries to the release
