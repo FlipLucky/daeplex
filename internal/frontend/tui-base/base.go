@@ -340,8 +340,25 @@ func renderPane(view *tview.TextView, cur *editor.Editor, pane *splitview.Pane, 
 	return cursorRow - scrollRow, cursor.Col + gutterWidth, cursor.Mode
 }
 
+// Boot builds the real TUI application and runs it against a real terminal
+// screen — the actual cmd/tui entry point. newApplication does the real
+// construction; Boot's only job is to run what it builds.
 func Boot(ws *workspace.Workspace) error {
+	return newApplication(ws, nil).Run()
+}
+
+// newApplication builds the full tview Application wired to ws, identical
+// to what Boot ran directly before this split — pulled apart specifically
+// so an e2e test can pass a headless tcell.SimulationScreen (see
+// *_e2e_test.go's newTestApp) and drive real keystrokes through the real
+// rendering pipeline, with no real terminal needed. screen may be nil —
+// Boot itself always passes nil, in which case Application.Run() creates
+// and Init()s a real terminal screen itself, exactly as it always has.
+func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Application {
 	app := tview.NewApplication()
+	if screen != nil {
+		app.SetScreen(screen)
+	}
 
 	// Color Palette definitions
 	editorBg := tcell.GetColor("#0b0b0c")
@@ -835,7 +852,7 @@ func Boot(ws *workspace.Workspace) error {
 		screen.ShowCursor(innerX+cursorScreenCol, innerY+cursorScreenRow)
 	})
 
-	return app.SetRoot(pages, true).Run()
+	return app.SetRoot(pages, true)
 }
 
 // drawSplashScreen paints the fresh-buffer intro screen directly onto

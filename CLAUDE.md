@@ -1630,6 +1630,56 @@ while typing — plus, in the separate scroll-sync testing pass above, the
 `vet`/`gofmt`/`test ./...` all clean, plus both tagged `daeplex-gui`/`dp`
 builds.
 
+**A real headless e2e test harness, 2026-10-31** — this whole session's
+markdown-preview saga (jumpy → choppy → wrong-pace, each regression only
+caught by a hand-scripted `tmux` session that leaves nothing behind to
+catch a *fourth* one automatically) made the case directly, per the user's
+own framing: "if we refactor something, it should run the e2e tests to
+make sure everything still works properly." `tui-base`'s `Boot` was split
+into `newApplication(ws, screen)` (all the real construction, screen
+optional) plus a now-trivial `Boot(ws) error { return
+newApplication(ws, nil).Run() }` — a pure, behavior-preserving extraction
+(confirmed via the full existing suite passing unchanged) that lets a test
+pass a real `tcell.SimulationScreen` (a fully headless, in-memory terminal)
+instead of `nil`, driving real injected key events through the *actual*
+production rendering pipeline — `SetInputCapture`'s own key-string
+translation, `ws.HandleKey`, the redraw-trigger goroutine, real
+`styledLineText` rendering — with no real terminal needed, and asserting
+on real rendered screen cells (`screen.GetContents()`), not `Editor`'s
+internal state directly (`internal/core/editor`'s own tests already prove
+that layer; this proves the frontend actually wires it up and renders it
+correctly, closing the one gap unit-level `HandleKey` tests structurally
+can't reach).
+
+New `internal/frontend/tui-base/e2e_test.go`, two tests to start (not "all
+major paths" yet — proving the harness itself is trustworthy came first):
+`TestE2EInsertEditUndoRendersThroughRealPipeline` (Insert mode, typing,
+Escape, one real undo — including a bug this test caught in *itself* on
+its first run: asserting `"hell"` appeared after undoing `"hello"` passed
+instantly and wrongly, since `"hell"` is already a substring of
+`"hello"` — fixed by asserting `"hello"` *disappears* instead, the only
+check that actually requires the character to be gone) and
+`TestE2EMarkdownPreviewScrollSyncTracksCursor` (opens a real 30-section
+`.md` file, toggles `:MdPreview`, jumps with `100G`, confirms the
+*preview pane specifically* — isolated via a new `screenColumnText`
+helper slicing just its half of the screen, since panesFlex splits the
+screen roughly 50/50 and a plain whole-screen `Contains` can't tell which
+pane a match came from — followed the jump, not just the main pane's own
+already-correct windowed scroll). Both verified to actually catch
+regressions, not just pass by construction: deliberately broke `<Esc>`'s
+key translation and separately deliberately disabled the preview's
+`ScrollTo` call, confirmed each test fails exactly as expected against
+the broken code, then confirmed both pass again once reverted — the same
+discipline this project's own race-condition tests (`piecetable`'s T16,
+`workspace`'s T57) already apply to concurrency bugs, now extended to
+rendering-pipeline regressions. Runs in well under a second (no real
+terminal, no sleep-based waits beyond short polling with a bounded
+timeout), so it's a `task test` citizen like everything else — no new
+command to remember after a refactor. Next: extend the same pattern to
+the rest of the major-path list (Visual mode select/yank/paste, `:s///`,
+workspace buffer switching) — deliberately not attempted in this same
+pass, so each addition stays reviewable on its own.
+
 ## Module & toolchain
 
 - Module: `github.com/fliplucky/daeplex`
