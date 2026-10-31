@@ -148,10 +148,15 @@ Stage 1 (MVP) is reached once the above three hold. From there, proceed
 through the numbered stages below, staying value-driven per release rather
 than jumping straight to full IDE breadth.
 
-1. **MVP**: single-file editing, full vim bindings, open/save, smooth on a
-   500MB file. Find/replace via nvim's command-style (`:s///`), not a new
-   modal UI — reuses existing command-mode machinery and stays
-   frontend-agnostic.
+1. **MVP**: single-file editing, full vim bindings, open/save. Find/replace
+   via nvim's command-style (`:s///`), not a new modal UI — reuses existing
+   command-mode machinery and stays frontend-agnostic. "Smooth on a 500MB
+   file" is deliberately not listed as a literal pass/fail gate here — it's
+   the Design philosophy's "Performance first" principle showing up as a
+   Roadmap bullet, an ongoing design constraint threaded through every
+   stage (viewport slicing, `Spans`' O(log n + k) fix, this file's whole
+   "per-keystroke work stays bounded to the visible range" rule), not a
+   specific benchmark number this stage waits on before being "reached."
 2. **Single markdown/HTML file with preview**: the deliberately
    low-entry-cost proof case for treesitter + LSP — one file, one grammar,
    no multi-file complexity. HTML specifically because it lets vim motions
