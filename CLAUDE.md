@@ -1372,7 +1372,7 @@ strings, a dead end for `gui-base`'s Gio-based rendering and a real risk of
 reproducing the GUI/TUI divergence this file already calls a bug — so the
 new `internal/lang/mdrender` package wraps `goldmark`'s AST directly, the
 same "one shared parser, one AST-walker per frontend" split
-`internal/syntax` already established for tree-sitter. A real, two-gate
+`internal/lang/syntax` already established for tree-sitter. A real, two-gate
 rule for *where* markdown rendering belongs came out of the same
 conversation (does a surface need rich styling at all, independent of
 cost; only then does cost decide) — status bar/gutter/cursor/mode stay
@@ -1392,12 +1392,48 @@ a shared Editor" mechanism at all), peeked the same one-keystroke-early way
 `tui-base` itself rather than `Workspace`, since toggling a rendered pane is
 purely this frontend's presentation state, nothing Workspace or Editor has
 any business knowing about. Re-parses only when `cur.GetText()` actually
-changed since the last render (`renderContent` already only runs on a real
-edit or buffer switch, via `ChangeChan`/`Switched` — not on bare cursor
-motion — so this guard is the difference between "parse once per edit,"
-Part 4's own Gate 2 requirement, and "parse once per edit, plus once per
-keystroke that only moved the cursor"). A real bug caught while writing
-`mdrender`'s own tests, not in manual testing: `tview.Escape` only
+changed since the last render — `renderContent` fires on every real edit
+*and* every bare cursor move (`moveCursorToLocked` calls `notifyChange`
+unconditionally, not only when an edit happened), so without this guard a
+plain `hjkl` would reparse the whole document on every keystroke; this is
+the structural enforcement of Part 4's own Gate 2 ("parse on
+content-change, not per frame"), not just an asserted claim.
+
+**Scroll-sync, not a focus-switchable pane, found live the same day**: the
+first version left the preview with no way to scroll it at all once it
+overflowed — it was never part of `splitLayout`, so `<C-w>h`/`<C-w>l`
+had no idea it existed, and keyboard focus never left the source pane
+(caught by the user hitting it in real use, not in review). Two fixes were
+on the table: make the preview itself focusable and independently
+scrollable, or sync its scroll position to the cursor automatically (the
+same behavior VSCode/Typora/nvim markdown-preview plugins already use).
+Chose scroll-sync — it's the actually-wanted behavior, not just the
+cheaper fix. `mdrender.ToTviewTags` now also returns a `LineMap`
+(source-line → rendered-line correspondence, recorded via each AST node's
+own `Pos()` — simpler than it first looked; `Pos()` is a plain `Node`
+interface method, no need to special-case which concrete types carry
+`Lines()`), and `LineMap.ScrollTarget(sourceLine)` finds the latest
+recorded point at or before it. `tui-base` calls
+`previewView.ScrollTo(previewLineMap.ScrollTarget(cursor.Row), 0)` on
+*every* `renderContent` call while the preview is active — deliberately
+not gated by the same re-parse guard above, since that guard exists to
+skip wasted work on a pure cursor move, which is exactly the case
+scroll-sync most needs to keep running. Verified against a real tagged
+`dp` binary with a 40-section markdown file: both a large jump (`150G`)
+and single-line motion (`j`) scroll the preview to the exact matching
+section, confirmed via `tmux`, not just the unit-level `LineMap` tests.
+
+A real, separate gap found live in the same testing pass, unrelated to
+preview work: `<C-d>`/`<C-u>` (half-page scroll) are missing from
+`internal/core/keyengine` entirely — not wired at all, not even an
+unbound-but-tracked case like `RuneMotion`. Logged as `ATOMIC_TASKS.md`'s
+new T33b rather than fixed inline here, since real vim's version also
+moves the cursor along with the scroll and needs the current viewport
+height — information `Editor`/`keyengine` don't carry today — so it's not
+quite the same drop-in shape as T33's other bare-key motions.
+
+A real bug caught while writing `mdrender`'s own tests, not in manual
+testing: `tview.Escape` only
 neutralizes a literal `"["` when it sees a complete `"[...]"` pair *within
 the one string it's given* — but goldmark hands back a failed
 link-shorthand attempt like `"[TODO]"` as several separate `ast.Text`
@@ -1410,8 +1446,10 @@ real rendered `.md` file in the real tagged `dp` binary via a scripted
 `tmux` session (not just the unit suite) — headings render bold in the
 brand accent colors, bold/italic/inline-code/lists/links/code
 fences/blockquotes all render correctly, and the preview updates live
-while typing. `go build`/`vet`/`gofmt`/`test ./...` all clean, plus both
-tagged `daeplex-gui`/`dp` builds.
+while typing — plus, in the separate scroll-sync testing pass above, the
+`150G`/`j` sync-accuracy check against a 40-section file. `go build`/
+`vet`/`gofmt`/`test ./...` all clean, plus both tagged `daeplex-gui`/`dp`
+builds.
 
 ## Module & toolchain
 

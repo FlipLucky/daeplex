@@ -768,6 +768,17 @@ ones:
       `MotionWordForward`/`Backward`/`End` with `IsWordChar` swapped for
       `Not(IsWhitespace)` — near-1:1 parametrization of functions that
       already exist. (M, 🔧 mechanical/solo-good)
+- [ ] **T33b — `<C-d>`/`<C-u>` (half-page scroll).** Found live, 2026-10-31,
+      testing the markdown preview pane — genuinely missing from
+      `internal/core/keyengine`'s tables, not just unbound-but-tracked
+      like `RuneMotion`. Real vim scrolls the viewport by half a screen
+      height and moves the cursor along with it (not a pure viewport
+      scroll with the cursor left behind) — needs the current viewport
+      height, which `Editor`/`keyengine` don't carry today (only
+      `viewmanager.ViewportSlice`'s caller, the frontend, knows the real
+      visible row count), so this isn't quite the same shape as the other
+      bare-key motions in T33 above; worth its own small design pass
+      rather than assuming it drops straight into `availableDirects`.
 - [x] **T34 — Edit-operator variants: `X` `a` `s` `S` `Y` `D` `C` `I`
       `A`.** **Shipped via T55 (2026-10-18)** — see that task's writeup for
       the full detail (all Verb/EnterInsert composition, no new

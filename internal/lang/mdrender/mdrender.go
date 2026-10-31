@@ -16,6 +16,7 @@ package mdrender
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -37,6 +38,67 @@ func escapeBrackets(s string) string {
 	return strings.ReplaceAll(s, "[", "[[]")
 }
 
+// LinePoint anchors one point in the rendered output back to the source
+// line it came from — the raw material for scroll-sync (a preview pane
+// auto-scrolling to track the cursor's position in the source, rather
+// than needing its own independent scroll/focus; see tui-base's
+// "scroll-sync, not focus-switching" design conversation).
+type LinePoint struct {
+	SourceLine   int
+	RenderedLine int
+}
+
+// LineMap is every LinePoint goldmark's walk recorded, in source-line
+// order (not necessarily contiguous — only nodes that start a genuinely
+// new rendered line get an entry, see ToTviewTags' walker).
+type LineMap []LinePoint
+
+// ScrollTarget returns the rendered line a preview pane should scroll to
+// for the cursor sitting at sourceLine — the entry for the latest
+// recorded source line at or before sourceLine, so the preview always
+// shows "at least this far," never jumping past where the cursor
+// actually is. Returns 0 (top of the document) if sourceLine precedes
+// every recorded point.
+func (m LineMap) ScrollTarget(sourceLine int) int {
+	i := sort.Search(len(m), func(i int) bool { return m[i].SourceLine > sourceLine })
+	if i == 0 {
+		return 0
+	}
+	return m[i-1].RenderedLine
+}
+
+// ToTviewTags renders markdown source into tview's dynamic-color tag
+// string format (the same format tui-base already builds for syntax
+// highlighting, the status bar, and completion popups — see
+// styledLineText), ready to hand straight to a tview.TextView with
+// SetDynamicColors(true). The returned LineMap lets a caller keep a
+// preview pane's scroll position in sync with where the cursor is in the
+// source, without the preview ever needing its own cursor or focus.
+func ToTviewTags(source []byte) (string, LineMap) {
+	root := goldmark.DefaultParser().Parse(text.NewReader(source))
+	w := &walker{source: source, lineStarts: lineStarts(source)}
+	_ = ast.Walk(root, w.visit)
+	return strings.TrimRight(w.b.String(), "\n") + "\n", w.lineMap
+}
+
+// lineStarts returns the byte offset each line of source begins at
+// (lineStarts[0] is always 0), for lineForOffset's binary search.
+func lineStarts(source []byte) []int {
+	starts := []int{0}
+	for i, b := range source {
+		if b == '\n' && i+1 < len(source) {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
+// lineForOffset finds the 0-indexed source line containing offset.
+func lineForOffset(starts []int, offset int) int {
+	i := sort.Search(len(starts), func(i int) bool { return starts[i] > offset })
+	return i - 1
+}
+
 // listState tracks one level of list nesting — goldmark's ast.Walk gives no
 // nesting context of its own, so this is pushed/popped around each
 // *ast.List the walk enters/leaves.
@@ -45,23 +107,41 @@ type listState struct {
 	next    int
 }
 
-// ToTviewTags renders markdown source into tview's dynamic-color tag
-// string format (the same format tui-base already builds for syntax
-// highlighting, the status bar, and completion popups — see
-// styledLineText), ready to hand straight to a tview.TextView with
-// SetDynamicColors(true).
-func ToTviewTags(source []byte) string {
-	root := goldmark.DefaultParser().Parse(text.NewReader(source))
-	var b strings.Builder
-	w := &walker{source: source, b: &b}
-	_ = ast.Walk(root, w.visit)
-	return strings.TrimRight(b.String(), "\n") + "\n"
+type walker struct {
+	source     []byte
+	lineStarts []int
+	b          strings.Builder
+	renderedLn int
+	lineMap    LineMap
+	lists      []listState
 }
 
-type walker struct {
-	source []byte
-	b      *strings.Builder
-	lists  []listState
+// write is every output-producing call's only path (never w.b directly) —
+// the one place renderedLn (how many newlines have been emitted so far)
+// stays in sync with what was actually written, which mark's accuracy
+// depends on entirely.
+func (w *walker) write(s string) {
+	w.b.WriteString(s)
+	w.renderedLn += strings.Count(s, "\n")
+}
+
+func (w *walker) writef(format string, args ...any) {
+	w.write(fmt.Sprintf(format, args...))
+}
+
+// mark records a sync point for n, if n reports a real source position —
+// called on entering any node that starts a genuinely new rendered line,
+// before that node writes any of its own output, so RenderedLine always
+// points at "the line this node's content begins on."
+func (w *walker) mark(n ast.Node) {
+	pos := n.Pos()
+	if pos < 0 {
+		return
+	}
+	w.lineMap = append(w.lineMap, LinePoint{
+		SourceLine:   lineForOffset(w.lineStarts, pos),
+		RenderedLine: w.renderedLn,
+	})
 }
 
 const (
@@ -77,29 +157,34 @@ func (w *walker) visit(n ast.Node, entering bool) (ast.WalkStatus, error) {
 	switch node := n.(type) {
 	case *ast.Heading:
 		if entering {
+			w.mark(n)
 			color := headingSecondary
 			if node.Level == 1 {
 				color = headingPrimary
 			}
-			fmt.Fprintf(w.b, "[%s::b]", color)
+			w.writef("[%s::b]", color)
 		} else {
-			w.b.WriteString(reset + "\n\n")
+			w.write(reset + "\n\n")
 		}
 	case *ast.Paragraph:
-		if !entering {
-			w.b.WriteString("\n\n")
+		if entering {
+			w.mark(n)
+		} else {
+			w.write("\n\n")
 		}
 	case *ast.TextBlock:
-		if !entering {
-			w.b.WriteString("\n")
+		if entering {
+			w.mark(n)
+		} else {
+			w.write("\n")
 		}
 	case *ast.Text:
 		if entering {
-			w.b.WriteString(escapeBrackets(string(node.Segment.Value(w.source))))
+			w.write(escapeBrackets(string(node.Segment.Value(w.source))))
 			if node.HardLineBreak() {
-				w.b.WriteString("\n")
+				w.write("\n")
 			} else if node.SoftLineBreak() {
-				w.b.WriteString(" ")
+				w.write(" ")
 			}
 		}
 	case *ast.Emphasis:
@@ -108,24 +193,26 @@ func (w *walker) visit(n ast.Node, entering bool) (ast.WalkStatus, error) {
 			attr = "b"
 		}
 		if entering {
-			fmt.Fprintf(w.b, "[::%s]", attr)
+			w.writef("[::%s]", attr)
 		} else {
-			w.b.WriteString("[::-]")
+			w.write("[::-]")
 		}
 	case *ast.CodeSpan:
 		if entering {
-			fmt.Fprintf(w.b, "[%s]", codeColor)
+			w.writef("[%s]", codeColor)
 		} else {
-			w.b.WriteString(reset)
+			w.write(reset)
 		}
 	case *ast.FencedCodeBlock:
 		if entering {
-			fmt.Fprintf(w.b, "[%s]%s%s\n\n", codeColor, escapeBrackets(string(node.Text(w.source))), reset)
+			w.mark(n)
+			w.writef("[%s]%s%s\n\n", codeColor, escapeBrackets(string(node.Text(w.source))), reset)
 		}
 		return ast.WalkSkipChildren, nil
 	case *ast.CodeBlock:
 		if entering {
-			fmt.Fprintf(w.b, "[%s]%s%s\n\n", codeColor, escapeBrackets(string(node.Text(w.source))), reset)
+			w.mark(n)
+			w.writef("[%s]%s%s\n\n", codeColor, escapeBrackets(string(node.Text(w.source))), reset)
 		}
 		return ast.WalkSkipChildren, nil
 	case *ast.List:
@@ -136,41 +223,44 @@ func (w *walker) visit(n ast.Node, entering bool) (ast.WalkStatus, error) {
 			}
 		} else {
 			w.lists = w.lists[:len(w.lists)-1]
-			w.b.WriteString("\n")
+			w.write("\n")
 		}
 	case *ast.ListItem:
 		if entering {
+			w.mark(n)
 			indent := strings.Repeat("  ", len(w.lists)-1)
 			top := &w.lists[len(w.lists)-1]
 			if top.ordered {
-				fmt.Fprintf(w.b, "%s%d. ", indent, top.next)
+				w.writef("%s%d. ", indent, top.next)
 				top.next++
 			} else {
-				fmt.Fprintf(w.b, "%s- ", indent)
+				w.writef("%s- ", indent)
 			}
 		} else {
-			w.b.WriteString("\n")
+			w.write("\n")
 		}
 	case *ast.Link:
 		if entering {
-			fmt.Fprintf(w.b, "[%s::u]", linkColor)
+			w.writef("[%s::u]", linkColor)
 		} else {
-			fmt.Fprintf(w.b, "%s [%s](%s)%s", reset, mutedColor, escapeBrackets(string(node.Destination)), reset)
+			w.writef("%s [%s](%s)%s", reset, mutedColor, escapeBrackets(string(node.Destination)), reset)
 		}
 	case *ast.AutoLink:
 		if entering {
-			fmt.Fprintf(w.b, "[%s::u]%s%s", linkColor, escapeBrackets(string(node.URL(w.source))), reset)
+			w.writef("[%s::u]%s%s", linkColor, escapeBrackets(string(node.URL(w.source))), reset)
 		}
 		return ast.WalkSkipChildren, nil
 	case *ast.ThematicBreak:
 		if entering {
-			fmt.Fprintf(w.b, "[%s]%s%s\n\n", mutedColor, strings.Repeat("─", 48), reset)
+			w.mark(n)
+			w.writef("[%s]%s%s\n\n", mutedColor, strings.Repeat("─", 48), reset)
 		}
 	case *ast.Blockquote:
 		if entering {
-			fmt.Fprintf(w.b, "[%s]", mutedColor)
+			w.mark(n)
+			w.writef("[%s]", mutedColor)
 		} else {
-			w.b.WriteString(reset)
+			w.write(reset)
 		}
 	}
 	return ast.WalkContinue, nil

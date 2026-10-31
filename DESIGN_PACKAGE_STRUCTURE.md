@@ -503,6 +503,30 @@ just stated). A real bug surfaced writing `mdrender`'s tests —
 `tview.Escape`'s bracket-pair detection breaks across goldmark's
 multi-fragment `ast.Text` output — fixed with a simpler, context-
 independent escape. Verified against a real rendered file in the real
-tagged `dp` binary, not just the unit suite. See `CLAUDE.md`'s Current
-phase for the full writeup. Hover's own markdown rendering remains named,
-confirmed-useful follow-on work, intentionally not bundled into this pass.
+tagged `dp` binary, not just the unit suite. Hover's own markdown rendering
+remains named, confirmed-useful follow-on work, intentionally not bundled
+into this pass.
+
+**Scroll-sync added the same day, found live by the user** ("how do i
+switch panes? had a hard time scrolling") — the pane as first shipped had
+no way to scroll once its content overflowed, since it was deliberately
+kept out of `splitLayout`'s focus-cycling (a read-only `tview.TextView`
+structurally has no cursor to cycle focus to). Chose scroll-sync (the
+preview auto-tracks the cursor's source line, like VSCode/Typora/nvim
+markdown-preview plugins) over the alternative of making the pane
+focusable and independently scrollable — the user's explicit call
+("scroll sync is a lot nicer ot be honest"). `mdrender.ToTviewTags` now
+also returns a `LineMap` (source-line → rendered-line correspondence,
+built from each AST node's own `Pos()`), and `tui-base` calls
+`previewView.ScrollTo(previewLineMap.ScrollTarget(cursor.Row), 0)` on
+every render while the preview is active — deliberately *not* gated by
+the content-change guard above, since that guard exists to skip wasted
+re-parse work on a pure cursor move, which is exactly when scroll-sync
+needs to run. Verified against a 40-section markdown file in the real
+tagged `dp` binary: both a large jump (`150G`) and single-line motion
+(`j`) land the preview on the exact matching section. A second, unrelated
+gap surfaced in the same live-testing pass — `<C-d>`/`<C-u>` (half-page
+scroll) missing from `internal/core/keyengine` entirely — logged as
+`ATOMIC_TASKS.md`'s T33b rather than fixed inline, since real vim's
+version needs the current viewport height, which `Editor`/`keyengine`
+don't carry today. See `CLAUDE.md`'s Current phase for the full writeup.

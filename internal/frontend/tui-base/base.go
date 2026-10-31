@@ -352,6 +352,15 @@ func Boot(ws *workspace.Workspace) error {
 	previewView.SetTextColor(editorFg)
 	var previewActive bool
 	var lastPreviewSource string
+	// previewLineMap is scroll-sync's own state (not splitview's/Workspace's
+	// business — see previewView's own doc comment above): the preview
+	// pane auto-scrolls to track wherever the cursor is in the source,
+	// rather than needing its own independent scroll/focus, so there's
+	// never a "how do I get into the preview pane to scroll it" question
+	// to answer. Recomputed alongside the rendered text, in the same
+	// content-change-gated branch below — stale otherwise, which is fine,
+	// since it's never read except right after that same recompute.
+	var previewLineMap mdrender.LineMap
 
 	panesFlex := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
@@ -457,24 +466,41 @@ func Boot(ws *workspace.Workspace) error {
 
 		// Preview pane (:MdPreview, see SetInputCapture below). Re-parses
 		// only when the source text actually changed since the last
-		// render — renderContent itself already only fires on a real edit
-		// or buffer switch (ChangeChan/Switched), not on bare cursor
-		// motion, but a plain cursor move still reaches here via the same
-		// function, so this guard is the difference between "parse once
-		// per edit" (Part 4's Gate 2 requirement) and "parse once per
-		// edit, plus once per keystroke that merely moved the cursor."
+		// render — renderContent fires on every real edit *and* every
+		// bare cursor move (moveCursorToLocked calls notifyChange
+		// unconditionally, not just when an edit happened), so without
+		// this guard a plain hjkl would reparse the whole document on
+		// every keystroke. This is the structural enforcement of Part
+		// 4's own Gate 2 ("parse on content-change, not per frame"), not
+		// just an asserted claim.
+		//
+		// Scroll-sync (not a focus-switchable pane of its own — see
+		// previewView's doc comment): every render, regardless of
+		// whether a reparse happened, the preview scrolls to the
+		// rendered line LineMap.ScrollTarget says corresponds to the
+		// cursor's current source line. This runs on every renderContent
+		// call precisely because that already includes bare cursor
+		// motion — scrolling only on a reparse would mean the preview
+		// stops following you the moment you stop editing and just read.
 		if previewActive {
 			if cur.Language() != types.LanguageMarkdown {
 				previewView.SetText("[#6a6a6e](not a markdown buffer)[-:-:-]")
 				lastPreviewSource = ""
-			} else if src := cur.GetText(); src != lastPreviewSource {
-				previewView.SetText(mdrender.ToTviewTags([]byte(src)))
-				lastPreviewSource = src
+				previewLineMap = nil
+			} else {
+				if src := cur.GetText(); src != lastPreviewSource {
+					rendered, lineMap := mdrender.ToTviewTags([]byte(src))
+					previewView.SetText(rendered)
+					lastPreviewSource = src
+					previewLineMap = lineMap
+				}
+				previewView.ScrollTo(previewLineMap.ScrollTarget(cursor.Row), 0)
 			}
 			panesFlex.ResizeItem(previewView, 0, 1)
 		} else {
 			panesFlex.ResizeItem(previewView, 0, 0)
 			lastPreviewSource = ""
+			previewLineMap = nil
 		}
 
 		cursorScreenRow = focusedScreenRow
