@@ -16,9 +16,9 @@ package interpreter
 import (
 	"strings"
 
-	clipboardregister "github.com/fliplucky/daeplex/internal/clipboard-register"
-	"github.com/fliplucky/daeplex/internal/keyengine"
-	"github.com/fliplucky/daeplex/internal/offset"
+	clipboardregister "github.com/fliplucky/daeplex/internal/core/clipboard-register"
+	"github.com/fliplucky/daeplex/internal/core/keyengine"
+	"github.com/fliplucky/daeplex/internal/document/offset"
 	"github.com/fliplucky/daeplex/internal/types"
 )
 
@@ -641,6 +641,27 @@ type BlockInsertAction struct {
 func (a BlockInsertAction) Kind() types.ActionKind { return types.ActionBlockInsert }
 func (a BlockInsertAction) Inserts() ([]offset.Insertion, bool) {
 	return a.Insertions, len(a.Insertions) > 0
+}
+
+// ApplyEditsAction (2026-10-31) is a batch of already-byte-resolved
+// replacements applied with no per-edit sync — see ActionApplyEdits'
+// own doc comment on types.ActionKind for why this needs to be its own
+// primitive rather than N ActionDelete/ActionInsertText pairs. Never
+// produced by keyengine/ProcessNormal — its producers are
+// editor.applySubstituteEditsLocked (:s///) and
+// editor.applyTextEditsRawLocked (LSP edits), both resolving against
+// state ProcessNormal has no access to (a compiled regexp's matches, an
+// LSP response's Positions) before constructing this directly and
+// dispatching it — the same "Validator/Processor never involved" shape
+// DESIGN_KEY_PIPELINE.md already describes for any Action producer that
+// isn't resolving a keypress.
+type ApplyEditsAction struct {
+	Replacements []offset.Replacement
+}
+
+func (a ApplyEditsAction) Kind() types.ActionKind { return types.ActionApplyEdits }
+func (a ApplyEditsAction) Edits() ([]offset.Replacement, bool) {
+	return a.Replacements, len(a.Replacements) > 0
 }
 
 // ResolveBlockRanges turns a Block-visual selection (anchor, live cursor)

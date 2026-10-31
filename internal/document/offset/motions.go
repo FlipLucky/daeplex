@@ -154,6 +154,21 @@ type Insertion struct {
 	Text   string
 }
 
+// Replacement is one already-byte-resolved "delete [Start, End), then
+// insert NewText at Start" edit — the canonical shape a non-keypress-
+// originated batch of edits (an LSP response's TextEdits, a :s///'s
+// matches) converges on once each has done its own upstream conversion to
+// byte offsets (LSP edits start as Positions; :s///'s matches are already
+// byte offsets). Previously kept as two separately-named, identically-
+// shaped types (internal/editor's old substituteEdit and an ad hoc
+// Start/End/NewText loop for LSP edits) — unified here (2026-10-31) since
+// there was never a real difference, once both are expressed this way.
+// End == Start means a pure insertion, no deletion.
+type Replacement struct {
+	Start, End int
+	NewText    string
+}
+
 // spanStart scans backward from currentOffset for the start of the
 // word/whitespace span that inSpan defines, correctly distinguishing "a
 // real boundary character sits at offset 0" from "hit the start of the

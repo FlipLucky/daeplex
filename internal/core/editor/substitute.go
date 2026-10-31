@@ -14,9 +14,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/fliplucky/daeplex/internal/exmode"
-	"github.com/fliplucky/daeplex/internal/offset"
-	"github.com/fliplucky/daeplex/internal/piecetable"
+	"github.com/fliplucky/daeplex/internal/core/exmode"
+	"github.com/fliplucky/daeplex/internal/core/interpreter"
+	"github.com/fliplucky/daeplex/internal/document/offset"
+	"github.com/fliplucky/daeplex/internal/document/piecetable"
 	"github.com/fliplucky/daeplex/internal/types"
 )
 
@@ -28,16 +29,6 @@ var (
 	// fine but matched nothing in the scope searched.
 	ErrPatternNotFound = errors.New("pattern not found")
 )
-
-// substituteEdit is one match's byte-offset replacement — computed
-// directly from regexp match indices, not lspclient.TextEdit's
-// Position-based shape (that type exists for LSP responses, which arrive
-// as Positions from the server; forcing a byte offset through Position
-// and immediately back would buy nothing here).
-type substituteEdit struct {
-	Start, End int
-	NewText    string
-}
 
 // executeSubstituteLocked is :s/:substitute's execution — called from
 // executeCommandLocked. Caller must already hold e.mu.
@@ -62,12 +53,12 @@ func (e *Editor) executeSubstituteLocked(cmd exmode.Command) error {
 		return nil
 	}
 
-	edits := make([]substituteEdit, len(matches))
+	edits := make([]offset.Replacement, len(matches))
 	for i, m := range matches {
 		// re.ReplaceAllString, not a literal splice: Go's regexp
 		// interprets $1/$name capture-group references in the
 		// replacement automatically, applied to just this one match.
-		edits[i] = substituteEdit{Start: m.Start, End: m.End, NewText: re.ReplaceAllString(m.Text, sub.Replacement)}
+		edits[i] = offset.Replacement{Start: m.Start, End: m.End, NewText: re.ReplaceAllString(m.Text, sub.Replacement)}
 	}
 	e.applySubstituteEditsLocked(edits)
 	return nil
@@ -188,23 +179,19 @@ func (e *Editor) substitutePreviewRangesLocked() []offset.TextRange {
 	return ranges
 }
 
-// applySubstituteEditsLocked applies edits — already in ascending offset
-// order, since lines are processed top-to-bottom and matches within a
-// line are found left-to-right — end-to-start, so an earlier edit's
-// offset is never invalidated by a later one already applied. Same
-// reasoning as applyTextEditsLocked; a separate method since the edit
-// shapes genuinely differ (byte offsets here, LSP Positions there). Like
-// applyTextEditsLocked, a substitute with N matches produces N separate
-// undo steps, not one — an existing, already-accepted tradeoff in this
-// codebase, not a new one. Caller must already hold e.mu.
-func (e *Editor) applySubstituteEditsLocked(edits []substituteEdit) {
-	for i := len(edits) - 1; i >= 0; i-- {
-		ed := edits[i]
-		e.table.Delete(ed.Start, ed.End-ed.Start)
-		if len(ed.NewText) > 0 {
-			e.table.Insert(ed.Start, []byte(ed.NewText))
-		}
-	}
+// applySubstituteEditsLocked applies edits through the real Action/
+// Executor pipeline (ApplyEditsAction/ActionApplyEdits) — the completion
+// of a gap DESIGN_KEY_PIPELINE.md named but never built when :s/// first
+// shipped (see DESIGN_PACKAGE_STRUCTURE.md's discrepancy #2): "`:s///`...
+// is the one Command-mode feature that would fit [Action/Executor]
+// (its Action is a sequence of replace operations)." Edit order doesn't
+// matter to the caller — ApplyEdits sorts internally. Like
+// applyTextEditsLocked, a substitute with N matches still produces N
+// separate undo steps, not one — an existing, already-accepted tradeoff
+// in this codebase, unchanged by this routing. Caller must already hold
+// e.mu.
+func (e *Editor) applySubstituteEditsLocked(edits []offset.Replacement) {
+	e.dispatchLocked(interpreter.ApplyEditsAction{Replacements: edits})
 	e.finishBufferMutationLocked(e.cursor.ByteOffset)
 }
 
@@ -268,7 +255,7 @@ func (e *Editor) handleSubstituteConfirmKeyLocked(key string) {
 }
 
 // applySubstituteConfirmCurrentLocked applies the confirm session's
-// current candidate as one real edit — the same substituteEdit/
+// current candidate as one real edit — the same offset.Replacement/
 // applySubstituteEditsLocked shape every other substitute apply uses, so
 // it produces its own undo step just like the non-confirm path's N
 // separate steps already do. Every *remaining* candidate's offsets are
@@ -278,7 +265,7 @@ func (e *Editor) handleSubstituteConfirmKeyLocked(key string) {
 func (e *Editor) applySubstituteConfirmCurrentLocked() {
 	m := e.substituteConfirmMatches[e.substituteConfirmIndex]
 	newText := e.substituteConfirmRe.ReplaceAllString(m.Text, e.substituteConfirmReplacement)
-	e.applySubstituteEditsLocked([]substituteEdit{{Start: m.Start, End: m.End, NewText: newText}})
+	e.applySubstituteEditsLocked([]offset.Replacement{{Start: m.Start, End: m.End, NewText: newText}})
 
 	delta := len(newText) - (m.End - m.Start)
 	for i := e.substituteConfirmIndex + 1; i < len(e.substituteConfirmMatches); i++ {

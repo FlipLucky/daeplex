@@ -101,6 +101,22 @@ const (
 	// way. Insertion has no existing single-location primitive that
 	// generalizes the same way, so this one earns its place.
 	ActionBlockInsert
+
+	// ActionApplyEdits (2026-10-31) applies a batch of offset.Replacement
+	// edits with no per-edit cursor/highlighter/LSP sync — deferred to one
+	// full reparse/resync at the end, by whichever caller composes it with
+	// a follow-up cursor placement. Genuinely a different primitive from
+	// ActionDelete/ActionInsertText, not reuse: those exist for one
+	// interactive, keypress-originated edit and always sync immediately
+	// (moveCursorToLocked) as part of their own contract — forcing a
+	// multi-edit LSP response or :s/// match batch through them would
+	// either reintroduce incorrect incremental highlighter state mid-batch
+	// or N redundant full-document LSP pushes instead of one. This is the
+	// completion of the gap DESIGN_KEY_PIPELINE.md named but never built:
+	// ":s///... its Action is a sequence of replace operations" and
+	// "LSP-driven edits... could go straight to Executor" — see
+	// DESIGN_PACKAGE_STRUCTURE.md's discrepancies #2/#3.
+	ActionApplyEdits
 )
 
 // VisualKind distinguishes Visual mode's three selection shapes — a real

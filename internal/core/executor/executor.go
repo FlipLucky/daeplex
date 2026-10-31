@@ -8,8 +8,8 @@
 package executor
 
 import (
-	clipboardregister "github.com/fliplucky/daeplex/internal/clipboard-register"
-	"github.com/fliplucky/daeplex/internal/offset"
+	clipboardregister "github.com/fliplucky/daeplex/internal/core/clipboard-register"
+	"github.com/fliplucky/daeplex/internal/document/offset"
 	"github.com/fliplucky/daeplex/internal/types"
 )
 
@@ -78,6 +78,12 @@ type Editor interface {
 	// InsertTextAtOffsets (T54) is block-visual paste: N independent
 	// insertions in one call, rather than one cursor-relative caret.
 	InsertTextAtOffsets(insertions []offset.Insertion)
+	// ApplyEdits (2026-10-31) applies a batch of already-byte-resolved
+	// replacements with no per-edit cursor/highlighter/LSP sync — see
+	// ActionApplyEdits' doc comment on types.ActionKind for why this is a
+	// distinct capability from DeleteRange/InsertTextAtOffsets rather than
+	// a composition of them.
+	ApplyEdits(edits []offset.Replacement)
 }
 
 // Small, optional-capability interfaces for pulling an Action's payload
@@ -117,6 +123,12 @@ type (
 	}
 	hasInsertions interface {
 		Inserts() ([]offset.Insertion, bool)
+	}
+	// hasEdits (2026-10-31) is ApplyEditsAction's payload accessor — a
+	// batch of offset.Replacement, distinct from hasInsertions/hasRanges'
+	// shapes (see types.ActionApplyEdits' doc comment).
+	hasEdits interface {
+		Edits() ([]offset.Replacement, bool)
 	}
 )
 
@@ -270,6 +282,12 @@ func Dispatch(a Action, ed Editor) {
 		if p, ok := a.(hasInsertions); ok {
 			if insertions, has := p.Inserts(); has {
 				ed.InsertTextAtOffsets(insertions)
+			}
+		}
+	case types.ActionApplyEdits:
+		if p, ok := a.(hasEdits); ok {
+			if edits, has := p.Edits(); has {
+				ed.ApplyEdits(edits)
 			}
 		}
 	}

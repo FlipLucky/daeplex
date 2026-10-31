@@ -6,10 +6,11 @@ package editor
 
 import (
 	"fmt"
-	"sort"
 
-	"github.com/fliplucky/daeplex/internal/lspclient"
-	"github.com/fliplucky/daeplex/internal/piecetable"
+	"github.com/fliplucky/daeplex/internal/core/interpreter"
+	"github.com/fliplucky/daeplex/internal/document/offset"
+	"github.com/fliplucky/daeplex/internal/document/piecetable"
+	"github.com/fliplucky/daeplex/internal/lang/lspclient"
 )
 
 // finishBufferMutationLocked is the common tail of every LSP-driven text
@@ -321,30 +322,29 @@ func (e *Editor) applyTextEditsForLocked(target *Cursor, edits []lspclient.TextE
 	e.useCursorLocked(prev)
 }
 
-// applyTextEditsRawLocked is applyTextEditsLocked's actual apply loop, split
-// out (T49) for confirmLSPCompletionLocked's sake — it needs to apply a
-// batch of edits (a completion's own TextEdit plus any AdditionalTextEdits,
-// e.g. an auto-inserted import line) but land the cursor somewhere other
-// than its own pre-edit position, so it computes that target itself and
-// calls finishBufferMutationLocked directly rather than through here.
-// Caller must already hold e.mu.
+// applyTextEditsRawLocked is applyTextEditsLocked's actual apply step,
+// split out (T49) for confirmLSPCompletionLocked's sake — it needs to
+// apply a batch of edits (a completion's own TextEdit plus any
+// AdditionalTextEdits, e.g. an auto-inserted import line) but land the
+// cursor somewhere other than its own pre-edit position, so it computes
+// that target itself and calls finishBufferMutationLocked directly rather
+// than through here. Converts each edit's LSP Position range to a byte
+// offset (the one piece of work that's genuinely specific to this
+// package, since byte offsets are all ApplyEditsAction/ApplyEdits ever
+// deal in) and dispatches through the real Action/Executor pipeline — the
+// completion of a gap DESIGN_KEY_PIPELINE.md named but never built (see
+// DESIGN_PACKAGE_STRUCTURE.md's discrepancy #3): "LSP-driven edits...
+// could go straight to Executor." Caller must already hold e.mu.
 func (e *Editor) applyTextEditsRawLocked(edits []lspclient.TextEdit, baseSource []byte) {
-	sorted := append([]lspclient.TextEdit(nil), edits...)
-	sort.Slice(sorted, func(i, j int) bool {
-		return lspclient.PositionToOffset(baseSource, sorted[i].Range.Start) >
-			lspclient.PositionToOffset(baseSource, sorted[j].Range.Start)
-	})
-
-	for _, ed := range sorted {
-		start := lspclient.PositionToOffset(baseSource, ed.Range.Start)
-		end := lspclient.PositionToOffset(baseSource, ed.Range.End)
-		if end > start {
-			e.table.Delete(start, end-start)
-		}
-		if len(ed.NewText) > 0 {
-			e.table.Insert(start, []byte(ed.NewText))
+	replacements := make([]offset.Replacement, len(edits))
+	for i, ed := range edits {
+		replacements[i] = offset.Replacement{
+			Start:   lspclient.PositionToOffset(baseSource, ed.Range.Start),
+			End:     lspclient.PositionToOffset(baseSource, ed.Range.End),
+			NewText: ed.NewText,
 		}
 	}
+	e.dispatchLocked(interpreter.ApplyEditsAction{Replacements: replacements})
 }
 
 // ---- Autocomplete ----

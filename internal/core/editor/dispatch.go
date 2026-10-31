@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"sort"
 
-	clipboardregister "github.com/fliplucky/daeplex/internal/clipboard-register"
-	"github.com/fliplucky/daeplex/internal/executor"
-	"github.com/fliplucky/daeplex/internal/interpreter"
-	"github.com/fliplucky/daeplex/internal/keyengine"
-	"github.com/fliplucky/daeplex/internal/offset"
-	"github.com/fliplucky/daeplex/internal/piecetable"
+	clipboardregister "github.com/fliplucky/daeplex/internal/core/clipboard-register"
+	"github.com/fliplucky/daeplex/internal/core/executor"
+	"github.com/fliplucky/daeplex/internal/core/interpreter"
+	"github.com/fliplucky/daeplex/internal/core/keyengine"
+	"github.com/fliplucky/daeplex/internal/document/offset"
+	"github.com/fliplucky/daeplex/internal/document/piecetable"
 	"github.com/fliplucky/daeplex/internal/types"
 )
 
@@ -479,6 +479,33 @@ func (v lockedEditorView) InsertNewlineWithIndent() {
 
 func (v lockedEditorView) ConfirmLSPCompletion()            { v.e.confirmLSPCompletionLocked() }
 func (v lockedEditorView) CycleLSPCompletion(direction int) { v.e.cycleLSPCompletionLocked(direction) }
+
+// ApplyEdits applies edits — a batch of already-byte-resolved
+// replacements (:s///'s matches, an LSP response's TextEdits already
+// converted from Positions by the caller) — sorted end-to-start so an
+// earlier edit's offset is never invalidated by a later one already
+// applied. Deliberately raw piecetable calls, not DeleteRange/
+// InsertTextAtOffsets: no per-edit moveCursorToLocked here at all, since
+// that would mean N incremental highlighter updates against intermediate
+// states its incremental model was never built to understand, plus N
+// redundant full-document LSP pushes instead of one. Sync is the caller's
+// job, afterward, via finishBufferMutationLocked with whatever final
+// cursor position that caller actually needs (see editor.
+// applySubstituteEditsLocked/applyTextEditsLocked/confirmLSPCompletionLocked
+// — each composes a different final offset on top of this same raw
+// apply).
+func (v lockedEditorView) ApplyEdits(edits []offset.Replacement) {
+	sorted := append([]offset.Replacement(nil), edits...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Start > sorted[j].Start })
+	for _, ed := range sorted {
+		if ed.End > ed.Start {
+			v.e.table.Delete(ed.Start, ed.End-ed.Start)
+		}
+		if len(ed.NewText) > 0 {
+			v.e.table.Insert(ed.Start, []byte(ed.NewText))
+		}
+	}
+}
 
 // moveCursorToLocked updates the cursor to newOffset (recomputing its
 // screen position), feeds edit to the syntax highlighter (if any — see
