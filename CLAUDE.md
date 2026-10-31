@@ -1861,11 +1861,7 @@ it can cross-arch within the same one), building `daeplex-gui` directly via
 upload` once the first job's `goreleaser release` has already created the
 release — deliberately not GoReleaser's own multi-machine split/merge
 flow, since a plain second job is easier for a first CI setup to reason
-about and debug. The macOS job's amd64 leg (cross-arch within macOS, from
-the arm64-native `macos-latest` runner) is flagged honestly as unverified
-until a real tagged push actually exercises it — expected to work (same-OS
-cross-arch via Xcode's own SDK, not the cross-*OS* case that's actually
-hard), not confirmed.
+about and debug.
 
 A real GoReleaser constraint surfaced and was fixed, not routed around:
 bundling every build's output into one archive per platform failed outright
@@ -1875,12 +1871,46 @@ only 2 (no `daeplex-gui` build declared in this config at all for that OS).
 Fixed by splitting into two archive groups instead of fighting the
 check: `dp`+`daeplex-api` bundle together (identical 6-platform coverage),
 `daeplex-gui` ships as its own archive only for the 3 platforms it's
-declared for. Verified as far as a Linux machine can: a full local
-`goreleaser release --snapshot --clean` actually built and archived all 9
-resulting bundles, and one extracted binary was confirmed to be a real,
-working stripped ELF executable (not just "the build step didn't error") —
-the macOS job itself is unverified until the first real tagged release runs
-it.
+declared for.
+
+**`v0.1.0` tagged and actually released, same day** — four CI iterations,
+each a real bug a local snapshot build structurally couldn't have caught
+(everything up through archiving/checksums passed locally on the first try;
+every failure here was specific to the real GitHub Actions environment or
+the real multi-job split):
+
+1. Repo's own Settings → Actions → "Workflow permissions" was capped to
+   read-only, silently overriding the workflow file's own `contents:
+   write` — a known GitHub default-settings gotcha, not a config bug; the
+   user fixed it directly in repo settings.
+2. `ubuntu-latest` has none of the Wayland/X11/Vulkan dev headers Gio's
+   cgo build links against (confirmed via the exact `pkg-config` failures
+   — `xkbcommon`, `wayland-client` — not guessed); my own dev machine
+   never hit this locally since it's already a Wayland desktop with these
+   installed. Fixed with an explicit `apt-get install` step, package list
+   taken from Gio's own install docs rather than reconstructed from memory.
+3. The `macos-gui` job's own build step named its output
+   `daeplex_<ver>_darwin_<arch>.tar.gz` — identical to the `dp`+
+   `daeplex-api` bundle GoReleaser's own job already uploads for darwin —
+   so `gh release upload` rejected the duplicate filename. First fix
+   attempt was incomplete: a `replace_all` on the Build step's templated
+   filename (`${ARCH}`) didn't touch the Upload step's two hand-written
+   literal filenames (`arm64`/`amd64` spelled out directly), so Upload
+   kept looking for files Build no longer produced — confirmed via the
+   user pasting the exact `gh` error ("no matches found for
+   `daeplex_0.1.0_darwin_arm64.tar.gz`") rather than guessed a second
+   time; fixed by grepping the whole file for every remaining stale
+   reference before re-tagging again.
+
+Verified for real, not just by each step not erroring: the actual
+`v0.1.0` GitHub Release carries all 11 assets (6 `daeplex_*` + 3
+`daeplex-gui_*` from the Linux/Windows job, 2 more `daeplex-gui_*_darwin_*`
+from the macOS job), confirmed both by the Actions UI showing both jobs
+green and by inspecting the release's real asset list via the GitHub API.
+The macOS cross-arch leg (building amd64 from the arm64-native
+`macos-latest` runner) is now confirmed working, not just expected to —
+its build step succeeded on every attempt; only the unrelated upload-step
+bugs above blocked it from completing.
 
 ## Module & toolchain
 
