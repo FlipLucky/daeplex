@@ -32,6 +32,19 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # daeplex-gui's cgo build links against Wayland/X11/Vulkan dev headers
+      # (see gioui.org/doc/install/linux) that aren't present on a bare
+      # ubuntu-latest runner — confirmed by a real CI failure ("Package
+      # xkbcommon/wayland-client was not found in the pkg-config search
+      # path"), not assumed. My own dev machine never hit this locally
+      # since it's already a Wayland desktop with these installed.
+      - name: Install Linux build dependencies for daeplex-gui (Gio)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libwayland-dev libx11-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
