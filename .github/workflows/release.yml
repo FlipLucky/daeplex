@@ -89,6 +89,6 @@ jobs:
           set -eu
           VERSION="${GITHUB_REF_NAME#v}"
           gh release upload "${GITHUB_REF_NAME}" \
-            "daeplex_${VERSION}_darwin_arm64.tar.gz" \
-            "daeplex_${VERSION}_darwin_amd64.tar.gz" \
+            "daeplex-gui_${VERSION}_darwin_arm64.tar.gz" \
+            "daeplex-gui_${VERSION}_darwin_amd64.tar.gz" \
             --repo "${{ github.repository }}"
