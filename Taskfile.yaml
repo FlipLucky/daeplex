@@ -77,6 +77,15 @@ tasks:
       - go test -coverprofile=tmp/coverage.out ./internal/...
       - go tool cover -func=tmp/coverage.out | grep -v '^total:' | awk '{print $NF, $0}' | sort -n | cut -d' ' -f2-
 
+  docs-check:
+    desc: >-
+      Check the project record for mechanical drift — dangling IDs, broken
+      links, ID-format slips, source citing archived docs, and claims in
+      CLAUDE.md that no longer match the Taskfile/go.mod. Judgment-level
+      staleness is the reconcile pass's job, not this.
+    cmds:
+      - ./scripts/docs-check.sh
+
   build:
     desc: Build all binaries locally
     cmds:
