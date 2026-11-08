@@ -7,8 +7,8 @@
 // are client-pull only, and the whole document is the only granularity
 // this task scopes (no textDocument/semanticTokens/range wiring) — so a
 // naive "request on every keystroke" would mean one full-document request
-// per character typed, exactly the per-keystroke LSP cost CLAUDE.md's IDE
-// pivot section says to avoid. semanticTokensInFlight throttles that to at
+// per character typed, exactly the per-keystroke LSP cost CLAUDE.md's
+// bounded-to-the-visible-range rule says to avoid. semanticTokensInFlight throttles that to at
 // most one outstanding request at a time: a burst of edits while one is in
 // flight fires no new requests, and the next edit after it resolves is
 // free to fire a fresh one — the same "coalesces to the latest" shape

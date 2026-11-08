@@ -46,8 +46,8 @@ locked method.
 not** (revisited 2026-10-11): the precondition — "caller must already hold
 the lock" — is a calling convention, not behavior, and doesn't belong
 baked into the name. These existing names are grandfathered, not due for a
-mass rename; new lock-free helpers (see `piecetable`'s planned `pieceAt`,
-`ATOMIC_TASKS.md`'s T16) use a plain, behavior-named identifier instead —
+mass rename; new lock-free helpers (see `piecetable`'s `pieceAt`, and
+`GOTCHAS.md`'s G1) use a plain, behavior-named identifier instead —
 and when every call site already satisfies the precondition structurally
 (not a per-function concern at all, just an architectural fact about the
 package), the explanation lives once in the *package's* own doc comment,
@@ -116,8 +116,7 @@ logic out of `Editor` into the type that should own it, per
   `GutterWidth`/`GutterText`) and no format-on-save *logic* here either
   (that's `lspfeatures.go`'s `executeWriteLocked`, below). Nothing
   persists across restarts yet — a real config file is its own,
-  not-yet-built dependency hub (see `FEATURES.md`'s Cross-cutting
-  section).
+  not-yet-built dependency hub (T68, D61).
 - `lspfeatures.go`'s `executeWriteLocked`/`saveLocked` (T51, 2026-10-18) —
   `:w`/`:write`'s real behavior once format-on-save exists, not just a
   precondition check: formatting is an *asynchronous* LSP round trip

@@ -161,7 +161,7 @@ func (e *Editor) GetCursor() Cursor {
 // ActiveCursor returns the actual *Cursor pointer this Editor currently
 // operates on — unlike GetCursor, which deliberately returns a value copy
 // so frontends never get a mutable handle into Editor's internals. A
-// splits layer (see DESIGN_SPLITS.md) is a different kind of consumer: it
+// splits layer (see D43) is a different kind of consumer: it
 // owns Cursor instances and tells Editor which one to use via UseCursor,
 // so it legitimately needs the real pointer, not a snapshot.
 func (e *Editor) ActiveCursor() *Cursor {
@@ -174,7 +174,7 @@ func (e *Editor) ActiveCursor() *Cursor {
 // Everything in dispatch.go/internal/interpreter/internal/executor keeps
 // reading and writing e.cursor exactly as before — none of it needs to
 // know the pointer underneath can change between keystrokes. A splits
-// layer (see DESIGN_SPLITS.md) calls this once per keystroke, right
+// layer (see D43) calls this once per keystroke, right
 // before forwarding it to whichever pane currently has focus. Safe
 // because only one pane is ever receiving keystrokes at a time — the same
 // "input stays serialized through whichever pane has focus" invariant

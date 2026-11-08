@@ -104,8 +104,8 @@ func CreateNormalModeDirects() map[string]DirectAction {
 		"V":       {Verb: EnterVisualLine},
 		"<C-v>":   {Verb: EnterVisualBlock},
 
-		// T55, 2026-10-18 — "fill out Normal mode" pass. See ATOMIC_TASKS.md
-		// for the full writeup; grouped here by what each reuses:
+		// The "fill out Normal mode" pass (archive/ATOMIC_TASKS.md's T55
+		// has the full history); grouped here by what each reuses:
 		//
 		// Bare motions (0/^/$/G/{/}), reusing the generic Move pipeline
 		// with no new interpreter plumbing beyond resolveMotion's switch.

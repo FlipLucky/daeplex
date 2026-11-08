@@ -386,7 +386,7 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 	editorView.SetTextColor(editorFg)
 
 	// splitLayout is the splits PoC (see internal/splitview's package doc
-	// comment and DESIGN_SPLITS.md) wired to a real frontend for the first
+	// comment and D43) wired to a real frontend for the first
 	// time: "<C-w>v" splits ws.Current()'s buffer into a second pane with
 	// its own independent cursor, "<C-w>w" cycles focus between them.
 	// Deliberately PoC-scoped, not full v1: panes always show whichever
@@ -394,8 +394,7 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 	// happens to be later — switching buffers (:e/:bnext) while split
 	// silently keeps both panes on the original buffer rather than
 	// following the switch (real v1 routes splits through *Workspace
-	// itself, not a single captured *editor.Editor — see
-	// DESIGN_SPLITS.md's "Open questions").
+	// itself, not a single captured *editor.Editor — see T62).
 	splitLayout := splitview.New(ws.Current())
 
 	// editorView2 is the second pane, shown only once a split actually
@@ -414,7 +413,7 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 
 	// previewView is a read-only rendered-markdown pane, toggled by
 	// ":MdPreview" (below) — the first real consumer of the
-	// markdown-rendering decision in DESIGN_PACKAGE_STRUCTURE.md's Part 4.
+	// markdown-rendering decision D46/D47.
 	// Deliberately not a splitview.Pane: a preview has no cursor and never
 	// receives keystrokes, so it sidesteps splitview's whole "independent
 	// cursor on a shared Editor" mechanism entirely rather than needing
@@ -762,7 +761,7 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 
 		// splitLayout gets first look, the same one-keystroke-early peek
 		// shape Workspace.HandleKey already uses for its own Command-mode
-		// interception (see DESIGN_SPLITS.md's "<C-w> routing" section) —
+		// interception (the same shape as D41's Command-mode peek) —
 		// "<C-w>" and whatever follows it never reach ws.HandleKey at all.
 		if splitLayout.Intercept(keyStr) {
 			// Every other redraw in this app rides on ws.Current().ChangeChan()/

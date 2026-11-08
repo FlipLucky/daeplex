@@ -5,7 +5,7 @@
 // async result stale, bump the version and notify). It has zero dependency
 // on piecetable, offset, or Editor: everything it needs to reason about
 // itself lives on the type, which is exactly what let it split cleanly out
-// of internal/editor (see BACKLOG.md's 2026-09-24 architecture review) —
+// of internal/editor (see docs/concepts/orchestrator-instrument.md) —
 // first bundled into one Editor field instead of six scattered ones, then
 // given its own methods so Editor stopped reaching into its fields
 // directly, then moved here once that was true.

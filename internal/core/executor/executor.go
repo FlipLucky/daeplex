@@ -1,6 +1,6 @@
 // Package executor is Executor's home in the Validator → Processor →
 // Executor key-handling pipeline (see docs/concepts/validator-processor-
-// executor.md and DESIGN_KEY_PIPELINE.md for the full history). Its only
+// executor.md and D22 for the full history). Its only
 // job is dispatch: given an already-resolved Action, decide which of
 // Editor's capabilities to invoke. It never resolves anything itself and
 // never imports internal/interpreter — Action's producer is irrelevant to
@@ -65,9 +65,8 @@ type Editor interface {
 	// BeginPendingFindChar puts the editor into "the next raw key is the
 	// target char for f/F" mode — mirrors BeginPendingReplace.
 	BeginPendingFindChar(forward bool)
-	// SetVisualAnchor/SetVisualKind (T52) are each their own small
-	// capability rather than folded into SetMode — see CLAUDE.md's
-	// "Minimal primitives, maximal composition."
+	// SetVisualAnchor/SetVisualKind are each their own small capability
+	// rather than folded into SetMode — see D35.
 	SetVisualAnchor(offset int)
 	SetVisualKind(kind types.VisualKind)
 	// DeleteRangesWithRegister/YankRanges (T54) are

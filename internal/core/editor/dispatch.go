@@ -56,7 +56,7 @@ func (e *Editor) handleInsertModeKey(key string) bool {
 	// maybeTriggerLSPCompletion kicks off an async network request — a
 	// genuine side effect, not a buffer/cursor decision, so it stays
 	// outside the Action/Executor pipeline (the same scope boundary
-	// DESIGN_KEY_PIPELINE.md already draws around Command mode's :w/:q).
+	// the pipeline design already draws around Command mode's :w/:q — D22).
 	// Fires for every plain single-rune key, regardless of what the
 	// pairing decision above did to the buffer — matches the original,
 	// which called it unconditionally after every single-rune key.
@@ -256,7 +256,7 @@ func toExecutorActions(actions []interpreter.Action) []executor.Action {
 // entry point for any producer that isn't first resolving against live
 // Editor state the way interpreter.ProcessNormal does (e.g. a future
 // LSP-driven edit, or a plugin/Lua call constructing an Action directly —
-// see DESIGN_KEY_PIPELINE.md's "Decoupled by shape, not by sender").
+// see docs/concepts/decoupled-by-shape.md).
 // Keypress-driven Actions go through handleNormalModeKey's own locked
 // block instead of this, since resolving against e.table/cursor and
 // applying the result need to be one atomic section — see its comment.
@@ -529,7 +529,7 @@ func (e *Editor) moveCursorToLocked(newOffset int, edit piecetable.Edit) {
 	if edit != (piecetable.Edit{}) && (e.highlighter != nil || e.lspService.Active()) {
 		// CombinePieces materializes the whole buffer — a real,
 		// already-tracked cost for large files (same family as
-		// FindPieceAt's O(P) scan in BACKLOG.md), accepted for now since
+		// FindPieceAt's O(P) scan, T66), accepted for now since
 		// the incremental parse itself is cheap regardless of document
 		// size (~650ns/edit per the gotreesitter benchmarks) and this
 		// isn't on the render path — it runs once per edit, not once per

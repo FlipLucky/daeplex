@@ -6,7 +6,7 @@
 // highlighting needs this exactly as much as the LSP stack does, and an
 // LSP-owned home would make syntax highlighting depend on something
 // LSP-flavored just to read a file extension — a backwards dependency).
-// See BACKLOG.md's 2026-09-24 architecture review for the reasoning.
+// See docs/concepts/orchestrator-instrument.md for the reasoning.
 package langdetect
 
 import (

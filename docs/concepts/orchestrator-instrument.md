@@ -23,8 +23,7 @@ violin.
 touching it again: its name says "move the cursor," but its body also
 dismisses the hover popup, feeds the tree-sitter highlighter, and syncs
 the LSP session inline — five jobs under a name that describes one of
-them. Flagged, not yet fixed — see `BACKLOG.md`'s structural-refactor
-section.
+them. Flagged, not yet fixed — see `GOTCHAS.md`'s G28.
 
 ## See also
 

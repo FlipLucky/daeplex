@@ -8,8 +8,7 @@
 // shape is built specifically for vim's verb/modifier/noun grammar, and
 // command-mode text isn't that grammar at all — it's flat, space-separated
 // tokens, closer to a shell command line. Forcing it into keyengine's types
-// would be a conceptual mismatch, not a simplification. See BACKLOG.md's
-// 2026-09-24 architecture review for the reasoning.
+// would be a conceptual mismatch, not a simplification. See D60.
 //
 // Like keyengine, this package only ever resolves — it has zero dependency
 // on piecetable, lspclient, or Editor, and never mutates anything. Editor's

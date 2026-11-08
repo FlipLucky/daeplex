@@ -1,10 +1,10 @@
 // substitute.go implements :s/pattern/replacement/flags and its
 // whole-buffer form :%s/pattern/replacement/flags — the staged first pass
-// per ATOMIC_TASKS.md's T13-T15: Go's own regexp syntax (RE2), not vim's
+// (D29): Go's own regexp syntax (RE2), not vim's
 // regex dialect (a real, deliberate divergence — no backreferences or
 // lookaround — documented rather than silently accepted, see
 // docs/packages/editor.md). "i" and arbitrary N,M line ranges are
-// deliberately deferred; "g" (T13-T15) and "c" (T30, see
+// deliberately deferred; "g" and "c" (see
 // SubstituteConfirmState below) are both done.
 package editor
 
@@ -181,8 +181,8 @@ func (e *Editor) substitutePreviewRangesLocked() []offset.TextRange {
 
 // applySubstituteEditsLocked applies edits through the real Action/
 // Executor pipeline (ApplyEditsAction/ActionApplyEdits) — the completion
-// of a gap DESIGN_KEY_PIPELINE.md named but never built when :s/// first
-// shipped (see DESIGN_PACKAGE_STRUCTURE.md's discrepancy #2): "`:s///`...
+// of a gap the pipeline design named but never built when :s/// first
+// shipped (D58): "`:s///`...
 // is the one Command-mode feature that would fit [Action/Executor]
 // (its Action is a sequence of replace operations)." Edit order doesn't
 // matter to the caller — ApplyEdits sorts internally. Like

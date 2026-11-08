@@ -16,8 +16,7 @@ type RegisterType int
 // 2026-10-18) — one string per row spanned, sharing this one field rather
 // than a second, parallel shape (Entry.Value string was widened to this
 // only once T54 actually needed a second value per entry — T52's own
-// char/linewise work deliberately left it alone, see ATOMIC_TASKS.md's
-// T52 writeup). len(Values) > 1 is what Paste/:registers use to tell a
+// char/linewise work deliberately left it alone — see D38). len(Values) > 1 is what Paste/:registers use to tell a
 // block entry apart from a charwise/linewise one — no separate flag.
 type Entry struct {
 	Values   []string

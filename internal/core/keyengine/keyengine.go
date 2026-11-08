@@ -42,7 +42,7 @@ const (
 	// interpreter.ResolveFindChar and dispatch.go's pendingFindChar
 	// branch). Deliberately not yet composable with an operator (df{char},
 	// dt{char}) — that needs a new modifier/noun shape, not just these two
-	// verbs; see ATOMIC_TASKS.md.
+	// verbs. See D59.
 	FindCharForward
 	FindCharBackward
 
@@ -58,7 +58,7 @@ const (
 	Paragraph
 	// Tag (T43, scoped to Stage 2's actual ask rather than the full
 	// per-language if/af/parameter-object suite T43 originally described —
-	// see its ATOMIC_TASKS.md entry for why that bigger scope stayed
+	// see T43b for why that bigger scope stayed
 	// deferred) is HTML's it/at — "inner tag"/"around tag," e.g. cit on
 	// <div>text</div> changes just "text." Reachable only after Inside/
 	// Around, never bare: real vim reserves bare `t` for the till-forward
@@ -133,7 +133,7 @@ const (
 	// Deliberately not composable with an operator (dgg) — that's real
 	// vim's linewise multi-line delete, a different shape than the
 	// charwise resolveMotionRange path every other noun here uses; see
-	// ATOMIC_TASKS.md's T55 for the scope cut. BufferEnd below is G's own
+	// D59 for the scope cut. BufferEnd below is G's own
 	// Direct-only identity, not reachable as a Noun for the same reason.
 	GPrefix
 	BufferStart
@@ -142,9 +142,8 @@ const (
 	// AppendAfterCursor/AppendEndOfLine/InsertAtFirstNonBlank (a/A/I)
 	// complete Normal mode's insert-entry set alongside the existing
 	// EnterInsert (i) — each resolves to a MoveAction then EnterInsertAction,
-	// the same two-action composition pattern CLAUDE.md's "Minimal
-	// primitives, maximal composition" already established for Visual
-	// mode's entry.
+	// the same two-action composition pattern D35 already established for
+	// Visual mode's entry.
 	AppendAfterCursor
 	AppendEndOfLine
 	InsertAtFirstNonBlank

@@ -42,11 +42,11 @@ common handler→service→repo chain shape (same roles, different wiring).
 
 Resembles Mediator (the hub) + Command (`Action` as a self-contained unit
 of work) + a lexer/parser/interpreter pipeline more than any single
-textbook pattern. `DESIGN_KEY_PIPELINE.md` at the repo root has the full
+textbook pattern. `archive/DESIGN_KEY_PIPELINE.md` has the full
 design-conversation history if the short version here doesn't answer a
 specific question — it predates this page and is kept for that history,
-not as the current source of truth (this page and `CLAUDE.md`'s Current
-phase section are).
+not as the current source of truth (this page and `DECISIONS.md`'s D22
+are).
 
 ## See also
 

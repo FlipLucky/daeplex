@@ -168,7 +168,7 @@ func TestE2EInsertEditUndoRendersThroughRealPipeline(t *testing.T) {
 
 	// One real undo removes the last inserted character — piecetable's
 	// history is per-edit, not per Insert-mode session (see
-	// CLAUDE.md/piecetable's own Undo/Redo history). Waiting for "hello"
+	// D7 and docs/packages/piecetable.md). Waiting for "hello"
 	// to disappear (not for "hell" to appear — "hell" is trivially already
 	// a substring of "hello", a real mistake this test caught in itself on
 	// its first run, passing instantly before undo had even been

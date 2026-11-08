@@ -5,8 +5,7 @@
 // matching this codebase's "add a table entry/case, not a new mechanism"
 // extension style elsewhere — a future option is another case here, not a
 // redesign. None of this persists across restarts yet — a real config
-// file is its own, not-yet-built dependency hub (see FEATURES.md's
-// Cross-cutting section).
+// file is its own, not-yet-built dependency hub (T68, D61).
 package editor
 
 import (

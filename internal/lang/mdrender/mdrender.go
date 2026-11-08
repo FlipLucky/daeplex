@@ -1,8 +1,8 @@
 // Package mdrender renders Markdown source into a styled form a frontend
 // can display directly — the first real consumer of the markdown-rendering
-// decision in DESIGN_PACKAGE_STRUCTURE.md's Part 4. Wraps goldmark (picked
+// decision D46. Wraps goldmark (picked
 // over glamour specifically because glamour only renders to ANSI terminal
-// strings, a dead end for gui-base's Gio-based rendering — see that doc for
+// strings, a dead end for gui-base's Gio-based rendering — see D46 for
 // the full reasoning) for its AST, the same "one shared parser, one
 // AST-walker per frontend" split internal/lang/syntax already established
 // for tree-sitter.

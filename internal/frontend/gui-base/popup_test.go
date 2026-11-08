@@ -7,8 +7,8 @@ import (
 
 // wrapText is pure logic with zero Gio dependency — gui-base's rendering
 // code has otherwise stayed untested this whole project specifically
-// because it needs a real Gio layout.Context (see CLAUDE.md's testing
-// notes), but this helper doesn't, so it's this package's first test file.
+// because it needs a real Gio layout.Context (see CLAUDE.md's Testing
+// conventions), but this helper doesn't, so it's this package's first test file.
 
 func TestWrapTextShortLineFitsOnOneLine(t *testing.T) {
 	got := wrapText("hello world", 40)

@@ -9,7 +9,7 @@ import (
 
 // TestEnterVisualCharSetsAnchorAndMode covers v's three composed actions
 // (EnterVisual, SetVisualAnchor, SetVisualKind) landing correctly from one
-// keystroke — see CLAUDE.md's "Minimal primitives, maximal composition."
+// keystroke — see D35.
 func TestEnterVisualCharSetsAnchorAndMode(t *testing.T) {
 	e := NewEditor("hello world")
 	e.MoveCursorRight() // offset 1
@@ -432,7 +432,7 @@ func TestVisualBlockRaggedRightEdgeClips(t *testing.T) {
 // TestVisualBlockChangeIsDeleteThenSingleInsert confirms the deliberate,
 // documented scope cut: block c is NOT a multi-row replay (that mechanism
 // is cut from this whole phase, parked for a future multi-cursor design —
-// see ATOMIC_TASKS.md's T54). Typing one character after block-c must
+// see D37). Typing one character after block-c must
 // land at exactly one place, not on every row the block spanned.
 func TestVisualBlockChangeIsDeleteThenSingleInsert(t *testing.T) {
 	e := NewEditor("abcd\nefgh\nijkl")

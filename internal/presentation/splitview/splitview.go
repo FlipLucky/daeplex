@@ -1,12 +1,11 @@
-// Package splitview is a proof of concept for DESIGN_SPLITS.md's core,
-// riskiest idea: a hot-swappable *editor.Cursor lets two panes show the
+// Package splitview is a proof of concept for D43's core, riskiest
+// idea: a hot-swappable *editor.Cursor lets two panes show the
 // same *editor.Editor with genuinely independent cursor/view state,
 // without touching dispatch.go/internal/interpreter/internal/executor at
 // all. This package is deliberately minimal — a flat, at-most-two-pane
 // layout, not yet the real recursive Pane/Node/Split tree the design doc
 // describes — built to validate the mechanism before investing in the
-// full feature. See DESIGN_SPLITS.md's "Open questions" for what's not
-// here yet.
+// full feature. See T62 for what's not here yet.
 package splitview
 
 import "github.com/fliplucky/daeplex/internal/core/editor"
@@ -52,8 +51,7 @@ func (l *Layout) Focused() *Pane {
 // its own fresh *editor.Cursor starting at the focused pane's current
 // position (not 0,0 — splitting shouldn't relocate you). A no-op if
 // already split (PoC scope: at most two panes, no axis/direction, no
-// tree — see DESIGN_SPLITS.md's real Pane/Node/Layout shape for what this
-// grows into).
+// tree — see T62 for the real Pane/Node/Layout shape this grows into).
 func (l *Layout) Split() {
 	if len(l.panes) >= 2 {
 		return
@@ -66,7 +64,7 @@ func (l *Layout) Split() {
 }
 
 // FocusNext cycles focus to the other pane (PoC scope: real v1 would be
-// "<C-w>w" cycling among N panes — see DESIGN_SPLITS.md's scope section;
+// "<C-w>w" cycling among N panes — see T62;
 // here it's just a two-way toggle since there are at most two).
 func (l *Layout) FocusNext() {
 	if len(l.panes) < 2 {
@@ -80,8 +78,8 @@ func (l *Layout) FocusNext() {
 // package only ever makes vertical (left/right) splits via Split, and
 // never more than two panes, so "the pane on the left" and "the pane on
 // the right" are unambiguous without any real geometry — index 0 is
-// always the left pane, index 1 the right. A real tree-based Layout (see
-// DESIGN_SPLITS.md) would need to actually walk panes by position; this
+// always the left pane, index 1 the right. A real tree-based Layout
+// (T62) would need to actually walk panes by position; this
 // is deliberately just that one degenerate case made real, not a
 // general spatial-navigation implementation. "<C-w>j"/"<C-w>k" have no
 // meaning yet for the same reason — there is no top/bottom split to move
@@ -102,8 +100,8 @@ func (l *Layout) FocusRight() {
 
 // Intercept consumes a "<C-w>" prefix sequence one keystroke early, the
 // same shape Workspace.HandleKey already uses for peeking at a pending
-// Command-mode buffer before forwarding — see DESIGN_SPLITS.md's
-// "<C-w> routing" section. PoC scope: "<C-w>v" (split), "<C-w>w" (cycle
+// Command-mode buffer before forwarding (the same shape as D41).
+// PoC scope: "<C-w>v" (split), "<C-w>w" (cycle
 // focus), and "<C-w>h"/"<C-w>l" (spatial left/right focus — see
 // FocusLeft/FocusRight's doc comment for why "j"/"k" aren't included yet)
 // only — real v1 adds "<C-w>s"/"<C-w>q". Returns true when key was

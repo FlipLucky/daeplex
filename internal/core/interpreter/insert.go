@@ -61,7 +61,7 @@ func (a CycleCompletionAction) Direction() int         { return a.Dir }
 // reused directly from normal.go: cursor motion and backspace-with-pair-
 // collapse are exactly the same shape (a resolved offset, a resolved
 // range) regardless of which mode asked for them — see
-// DESIGN_KEY_PIPELINE.md's "Decoupled by shape, not by sender."
+// docs/concepts/decoupled-by-shape.md.
 //
 // completionActive must be read under the same lock as doc/at/ctx — it
 // decides whether <Enter> confirms a completion or inserts a newline, so

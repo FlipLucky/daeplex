@@ -37,7 +37,7 @@ exported, self-locking method must never call *another* exported,
 self-locking method on the same `*Table` from inside its own locked body
 — `GetRuneAt` calls `pieceAt` directly rather than `FindPieceAt`, and
 `Insert` (already holding the write lock) does the same, for exactly this
-reason. Fixed 2026-10-17 (`ATOMIC_TASKS.md`'s T16) — see
+reason. See `GOTCHAS.md`'s G1 —
 `internal/piecetable/table_test.go`'s `TestConcurrentInsertAndGetRuneAt`,
 which fails under `go test -race` against the pre-fix code and passes
 against the fix (confirmed by actually reverting and re-running, not
@@ -51,8 +51,8 @@ assumed).
 - `Insert` with a negative offset silently misplaces instead of erroring;
   no rune-boundary guard on `Insert`/`Delete`/`GetRange`.
 
-See `BACKLOG.md`'s Correctness/robustness section for the full, current
-list — these are tracked there, not duplicated here in detail.
+See `ROADMAP.md`'s Deferred section (T66 among them) for the full,
+current list — tracked there, not duplicated here in detail.
 
 ## Depends on
 

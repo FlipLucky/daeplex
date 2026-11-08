@@ -30,7 +30,7 @@ builds:
     ldflags:
       - -s -w
 
-  # daeplex-api — not consumer-facing yet (see CLAUDE.md's Known issues),
+  # daeplex-api — not consumer-facing yet (see ARCHITECTURE.md),
   # but already builds standalone, so it ships alongside the other two.
   # No grammar tags, matching Taskfile.yaml's build task, which doesn't
   # pass any to this binary either.

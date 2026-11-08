@@ -11,8 +11,7 @@ import (
 // genBenchMarkdown produces realistic markdown (heading + prose-paragraph
 // sections, repeated) at approximately the given size — the shape found to
 // matter: ToTviewTags' cost scales with total document size, not with
-// content on screen (see BACKLOG.md's "Markdown preview isn't
-// viewport-scoped" entry, raised directly against this project's "smooth
+// content on screen (see T65, raised directly against this project's "smooth
 // and light, even on huge files" pillar).
 func genBenchMarkdown(approxBytes int) string {
 	var b strings.Builder
@@ -27,7 +26,7 @@ func genBenchMarkdown(approxBytes int) string {
 // normal test suite (Go only runs Benchmark* functions with -bench) — a
 // standing, repeatable way to re-check these numbers instead of
 // re-deriving them with a throwaway script each time scaling comes up.
-// Sub-benchmarks cover 1MB and 10MB; see BACKLOG.md's entry for 50MB/200MB
+// Sub-benchmarks cover 1MB and 10MB; see T65 for the 50MB/200MB
 // numbers from the one-off run that first surfaced this (too slow for a
 // benchmark that runs routinely).
 func BenchmarkToTviewTagsOnLargeDocument(b *testing.B) {

@@ -1,6 +1,6 @@
 // Package interpreter is Processor's home in the Validator → Processor →
 // Executor key-handling pipeline (see docs/concepts/validator-processor-
-// executor.md and DESIGN_KEY_PIPELINE.md for the full history). It sits
+// executor.md and D22 for the full history). It sits
 // above both internal/keyengine (Validator's current
 // home for Normal mode) and internal/offset, importing both without either
 // depending back — the same zero-dependency-sibling property those two
@@ -98,7 +98,7 @@ type VisualContext struct {
 // job interpreting the sequence by the time one of these exists. Declared
 // locally rather than imported from internal/executor, so this package
 // never needs to import Executor's package to produce values it accepts —
-// see DESIGN_KEY_PIPELINE.md's "Decoupled by shape, not by sender." Any
+// see docs/concepts/decoupled-by-shape.md. Any
 // type with a Kind() method satisfies both this and executor.Action
 // structurally.
 type Action interface {
@@ -195,8 +195,8 @@ func (a RedoAction) Count() int             { return a.RepeatCount }
 // with" mode. The second keystroke bypasses keyengine/ProcessNormal
 // entirely (there's no sequence to validate — any rune or <Esc> is
 // accepted) and arrives as a ReplaceRuneAction constructed directly by
-// Editor instead — see DESIGN_KEY_PIPELINE.md's "Decoupled by shape, not
-// by sender": Executor accepts Actions from anything, not just Processor.
+// Editor instead — see docs/concepts/decoupled-by-shape.md: Executor
+// accepts Actions from anything, not just Processor.
 type BeginReplaceAction struct{}
 
 func (a BeginReplaceAction) Kind() types.ActionKind { return types.ActionBeginReplace }
@@ -228,7 +228,7 @@ func (a HoverAction) Kind() types.ActionKind { return types.ActionHover }
 
 // EnterVisualAction/ExitVisualAction are bare mode switches — structurally
 // identical to EnterInsertAction/EnterCommandAction, no payload. See
-// CLAUDE.md's "Minimal primitives, maximal composition" for why the anchor
+// D35 for why the anchor
 // and kind are their own separate actions instead of payload bundled here.
 type EnterVisualAction struct{}
 
@@ -531,7 +531,7 @@ func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Pos
 			// Deliberately NOT real vim's full block-change (type once,
 			// replayed across every row) — that needs the same multi-row
 			// replay mechanism explicitly cut from this task alongside I/A
-			// (see ATOMIC_TASKS.md's T54). This is an honest, smaller
+			// (see D37). This is an honest, smaller
 			// behavior instead: delete the rectangle, enter Insert at one
 			// position — correct, just not a replay, and not silently
 			// claimed to be one.
@@ -665,8 +665,7 @@ func (a BlockInsertAction) Inserts() ([]offset.Insertion, bool) {
 // state ProcessNormal has no access to (a compiled regexp's matches, an
 // LSP response's Positions) before constructing this directly and
 // dispatching it — the same "Validator/Processor never involved" shape
-// DESIGN_KEY_PIPELINE.md already describes for any Action producer that
-// isn't resolving a keypress.
+// D58 describes for any Action producer that isn't resolving a keypress.
 type ApplyEditsAction struct {
 	Replacements []offset.Replacement
 }

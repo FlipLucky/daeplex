@@ -55,7 +55,7 @@ const (
 // today; a future LSP-edit adapter or plugin surface tomorrow) defines its
 // own concrete type exposing Kind() plus whatever small payload-shaped
 // interfaces internal/executor needs, never importing executor to do so.
-// See DESIGN_KEY_PIPELINE.md's "Decoupled by shape, not by sender."
+// See docs/concepts/decoupled-by-shape.md (D22).
 type ActionKind int
 
 const (
@@ -78,8 +78,8 @@ const (
 	ActionBeginFindChar
 
 	// ActionEnterVisual/ActionExitVisual are bare mode switches, structurally
-	// identical to ActionEnterInsert/ActionEnterCommand — see CLAUDE.md's
-	// "Minimal primitives, maximal composition." ActionSetVisualAnchor/
+	// identical to ActionEnterInsert/ActionEnterCommand — see D35.
+	// ActionSetVisualAnchor/
 	// ActionSetVisualKind are each their own small, independently-reusable
 	// primitive rather than payload bundled onto ActionEnterVisual: entering
 	// Visual fresh dispatches all three together, but switching Visual kind
@@ -112,10 +112,9 @@ const (
 	// multi-edit LSP response or :s/// match batch through them would
 	// either reintroduce incorrect incremental highlighter state mid-batch
 	// or N redundant full-document LSP pushes instead of one. This is the
-	// completion of the gap DESIGN_KEY_PIPELINE.md named but never built:
+	// completion of a gap the pipeline design named but never built:
 	// ":s///... its Action is a sequence of replace operations" and
-	// "LSP-driven edits... could go straight to Executor" — see
-	// DESIGN_PACKAGE_STRUCTURE.md's discrepancies #2/#3.
+	// "LSP-driven edits... could go straight to Executor" — see D58.
 	ActionApplyEdits
 )
 

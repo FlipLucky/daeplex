@@ -70,7 +70,7 @@ func (e *Editor) requestHoverLocked() {
 	// Captured now, at request time, not read as ed.cursor when the
 	// response arrives — once splits exist, e.cursor may have been
 	// hot-swapped to a different pane's cursor by then (see
-	// DESIGN_SPLITS.md's async-correctness audit). The result always
+	// G2). The result always
 	// lands on the pane that actually asked for it.
 	targetCursor := e.cursor
 
@@ -311,7 +311,7 @@ func (e *Editor) applyTextEditsLocked(edits []lspclient.TextEdit, baseSource []b
 // useCursorLocked, then restores it. Needed specifically for Format's
 // async response (see startFormatLocked/executeWriteLocked), which can
 // arrive after focus has moved to a different pane than the one that
-// asked for it (see DESIGN_SPLITS.md's async-correctness audit).
+// asked for it (see G2).
 // confirmLSPCompletionLocked doesn't need this — it's synchronous, so
 // "whichever cursor is active" is already the right one. Caller must
 // already hold e.mu.
@@ -332,8 +332,8 @@ func (e *Editor) applyTextEditsForLocked(target *Cursor, edits []lspclient.TextE
 // offset (the one piece of work that's genuinely specific to this
 // package, since byte offsets are all ApplyEditsAction/ApplyEdits ever
 // deal in) and dispatches through the real Action/Executor pipeline — the
-// completion of a gap DESIGN_KEY_PIPELINE.md named but never built (see
-// DESIGN_PACKAGE_STRUCTURE.md's discrepancy #3): "LSP-driven edits...
+// completion of a gap the pipeline design named but never built
+// (D58): "LSP-driven edits...
 // could go straight to Executor." Caller must already hold e.mu.
 func (e *Editor) applyTextEditsRawLocked(edits []lspclient.TextEdit, baseSource []byte) {
 	replacements := make([]offset.Replacement, len(edits))

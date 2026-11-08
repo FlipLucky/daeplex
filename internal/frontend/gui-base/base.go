@@ -60,8 +60,7 @@ func CreateApp(ws *workspace.Workspace) GuiApp {
 
 	// DaePlex theme colors — the same industrial tech-noir palette the
 	// fliplucky.github.io portfolio runs on (near-black ground, one warm
-	// brand accent), replacing the earlier Tokyo Night palette (see
-	// CLAUDE.md's Current phase, 2026-10-25).
+	// brand accent), replacing the earlier Tokyo Night palette (D45).
 	theme.Palette.Bg = color.NRGBA{R: 0x0b, G: 0x0b, B: 0x0c, A: 0xff}         // Near-black ground
 	theme.Palette.Fg = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}         // White text
 	theme.Palette.ContrastBg = color.NRGBA{R: 0xff, G: 0x95, B: 0x00, A: 0xff} // Brand orange (cursor)

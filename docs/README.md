@@ -7,16 +7,16 @@ same thing as the other two documentation layers this project already has:
   doc comment), read via `go doc` or your editor's hover/jump-to-def. This
   is "I'm looking at this function, what does it guarantee." Lives in the
   source itself, not here.
-- **The flat markdown docs at the repo root** (`CLAUDE.md`, `BACKLOG.md`,
-  `ATOMIC_TASKS.md`, `FEATURES.md`) — the actively-edited, single-source-of-
-  truth record of exactly where the project stands: what shipped, what's
-  known-broken, what's next. Still the place to look for *current state*.
-  See [Other docs in this repo](other-docs.md).
+- **The flat markdown docs at the repo root** (`CLAUDE.md`,
+  `ARCHITECTURE.md`, `ROADMAP.md`, `handovers/`, `LOG.md`, `DECISIONS.md`,
+  `GOTCHAS.md`) — the actively-edited, single-source-of-truth record of how
+  the project works and where it stands. Still the place to look for
+  *current state*. See [Other docs in this repo](other-docs.md).
 - **This wiki** — a synthesized, navigable view for "I want to understand
   how this fits together," cross-linked by concept and by package instead
   of living in one long file. It absorbs what used to be `CONCEPTS.md` at
   the repo root (now the Concepts section in the sidebar) plus a page per
-  package pulled out of `CLAUDE.md`'s Architecture section, so each piece
+  package pulled out of what is now `ARCHITECTURE.md`, so each piece
   can link to its neighbors instead of everything sitting in one scroll.
 
 This wiki is **additive** — it doesn't replace anything, and when it and

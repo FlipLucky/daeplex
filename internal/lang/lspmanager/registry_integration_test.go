@@ -25,8 +25,7 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 // release lookup, registry.json.zip download, zip extraction — actually
 // works against the live mason-registry, not just the pure parser tested
 // elsewhere against a fixture. Skipped by default (this project's tests run
-// with no network dependency; see the pty-verification discipline in
-// CLAUDE.md) — set LSPMANAGER_INTEGRATION=1 to run it for real.
+// with no network dependency; see CLAUDE.md's Testing conventions) — set LSPMANAGER_INTEGRATION=1 to run it for real.
 func TestFetchLatestRegistryJSONLive(t *testing.T) {
 	if os.Getenv("LSPMANAGER_INTEGRATION") == "" {
 		t.Skip("set LSPMANAGER_INTEGRATION=1 to run this against the live mason-registry")
