@@ -183,9 +183,15 @@ Tree-sitter grammars are linked in via build tags — see `GRAMMAR_TAGS` in
 `Taskfile.yaml`. A bare `go build ./...` links the full ~200-language fleet
 instead: it works, the binary is just much larger.
 
-A **release** pipeline exists (`.goreleaser.yaml` + `.github/workflows/`,
-on a version tag push). There is still **no test/lint CI** — `vet` and
-`test` are run by hand. Independent gaps; closing one didn't touch the other.
+Two pipelines, both in `.github/workflows/`: **test** (`test.yml`, on
+pushes to `main` and every pull request — gofmt, vet, build, test,
+`-race`, the tagged builds, and `docs-check.sh`) and **release**
+(`release.yml` + `.goreleaser.yaml`, on a version tag push).
+
+The test pipeline runs nothing the local gate doesn't, so `task test` plus
+`./scripts/docs-check.sh` remains an accurate pre-push check. Note it needs
+Gio's cgo dependencies installed just to *compile the tests* (G23, G24) —
+`gui-base` imports Gio, so `go test ./...` links it.
 
 ## Testing conventions
 
@@ -200,8 +206,15 @@ on a version tag push). There is still **no test/lint CI** — `vet` and
 - **Prove a regression test fails first** (G22). Revert the fix, watch it
   fail, restore. A test written against already-fixed code proves nothing
   about its own sensitivity.
-- Rendering code in `gui-base` is build-and-smoke-verified only; pure logic
-  extracted out of it is unit-tested. That asymmetry is deliberate.
+- **Both** front ends have a headless e2e harness driving real frames
+  through the production pipeline — `tui-base` via `tcell.SimulationScreen`,
+  `gui-base` via `gioui.org/io/input.Router` (T70). A feature touching both
+  gets verified on both; divergence is a bug (D8).
+- They differ in *depth*, and the toolkit is why: tcell hands back a grid of
+  cells, so a tui test reads the glyphs a user would see. Gio renders to an
+  ops list with no text to read back, so a gui test asserts on what the
+  frame consumed — the derived viewport, the cursor, the mode. Don't
+  describe gui assertions as glyph-level; they aren't.
 
 ## Comments and naming
 

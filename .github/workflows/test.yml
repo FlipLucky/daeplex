@@ -1,0 +1,93 @@
+name: Test
+
+# Safeguards merges: this is what makes the two headless e2e harnesses
+# (tui-base's SimulationScreen, gui-base's input.Router — T70) mean
+# something to someone who isn't the person who wrote them. Locally they
+# are a development tool and only run when someone types `task test`.
+#
+# Independent of the release pipeline in release.yml, which triggers on a
+# version tag and has never run any tests. Closing one gap didn't close the
+# other.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only is all this needs. Note that the repo's own Settings → Actions
+# → Workflow permissions can override what's declared here (G25) — it did
+# exactly that to release.yml's `contents: write` once, silently.
+permissions:
+  contents: read
+
+env:
+  # Keep in sync by hand with Taskfile.yaml's GRAMMAR_TAGS var, and with
+  # release.yml and .goreleaser.yaml's own copies of this same list.
+  GRAMMAR_TAGS: grammar_subset,grammar_subset_go,grammar_subset_typescript,grammar_subset_tsx,grammar_subset_javascript,grammar_subset_html,grammar_subset_css,grammar_subset_scss,grammar_subset_php,grammar_subset_dart,grammar_subset_c,grammar_subset_cpp,grammar_subset_yaml,grammar_subset_json,grammar_subset_dockerfile,grammar_subset_markdown
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # A deadlocked frontend test is a real failure mode here, not a
+    # hypothetical: tview holds its app lock across draw hooks, and
+    # re-entering it from one hangs the process rather than failing it
+    # (G34). Caught in development by a 10-minute Go test timeout. The
+    # per-command -timeout flags below are the real guard — they panic with
+    # a goroutine dump, which is what identified that bug — and this is the
+    # outer stop so a hang can't burn the runner's full allowance.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Required to *test*, not just to release: `go test ./...` compiles
+      # internal/frontend/gui-base, which imports Gio, and Gio's Linux
+      # build is cgo and links against these dev headers (G23, G24). A bare
+      # ubuntu-latest runner has none of them. Same list as release.yml's.
+      - name: Install Linux build dependencies for Gio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libwayland-dev libx11-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l internal/ platform/ cmd/)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      # No LSPMANAGER_INTEGRATION here on purpose: the real-server tests it
+      # gates download toolchains and talk to the live mason registry, so
+      # they stay a local/manual check rather than something every push
+      # pays for and every network blip fails.
+      - name: go test
+        run: go test -count=1 -timeout 300s ./...
+
+      - name: go test -race
+        run: go test -race -count=1 -timeout 600s ./...
+
+      # The tagged build is its own failure surface: a bare `go build ./...`
+      # links gotreesitter's full grammar fleet, so a break specific to the
+      # curated subset only shows up here. Catches it before a release tag
+      # does, which is when it used to.
+      - name: Tagged builds
+        run: |
+          go build -tags "${GRAMMAR_TAGS}" -o /tmp/daeplex-gui ./cmd/gui
+          go build -tags "${GRAMMAR_TAGS}" -o /tmp/dp ./cmd/tui
+
+      - name: Record check
+        run: ./scripts/docs-check.sh

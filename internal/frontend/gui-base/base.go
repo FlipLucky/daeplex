@@ -95,102 +95,117 @@ func (g *GioApp) Run() {
 			case app.FrameEvent:
 				ops.Reset()
 				gtx := app.NewContext(&ops, e)
-
-				// Declare the input area over the entire window and paint
-				// the background.
-				clipStack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-				event.Op(gtx.Ops, g.tag)
-
-				// The focus request must come *after* event.Op has
-				// registered the tag in this frame's ops — requesting it
-				// any earlier gets silently dropped, since the tag isn't
-				// yet a valid focus target for this frame.
-				if !gtx.Focused(g.tag) {
-					gtx.Execute(key.FocusCmd{Tag: g.tag})
-				}
-
-				paint.ColorOp{Color: g.theme.Palette.Bg}.Add(gtx.Ops)
-				paint.PaintOp{}.Add(gtx.Ops)
-
-				g.handleEvents(gtx)
-
-				cur := g.ws.Current()
-				if cur.IsQuitRequested() {
+				if g.frame(gtx) {
 					window.Perform(system.ActionClose)
 				}
-
-				if g.showSplash {
-					// No layout.Stack wrapper needed (unlike the non-splash
-					// branch below, which overlays a hover popup on top of
-					// the body) — one Expanded child with no Stacked sibling
-					// would reset Constraints.Min to {0,0} (layout.Expanded
-					// sizes Min to the largest Stacked sibling, and there is
-					// none here), discarding the root gtx's real Min==Max==
-					// window-size constraints that renderSplash's
-					// layout.Center.Layout needs to actually expand and
-					// center rather than sit at its natural top-left size.
-					renderSplash(gtx, g.theme)
-				} else {
-					cursor := cur.GetCursor()
-					lineHeight := lineHeightPx(gtx, g.theme)
-					// Report the two primitives this frontend actually
-					// knows and let Editor derive the rest (D64): the
-					// vertical space left for text once the single-line
-					// status bar is reserved, and how tall one line is. A
-					// resize changes the first, a font-size change the
-					// second, and neither needs handling here.
-					cur.SetViewportMetrics(gtx.Constraints.Max.Y-lineHeight, lineHeight)
-					slice := cur.Viewport()
-					topRow := cur.ViewportTopRow()
-					spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
-					diagnostics := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
-					substitutePreview := cur.SubstitutePreviewRanges()
-					substitutePreview = append(substitutePreview, cur.VisualSelectionRanges()...)
-
-					showNumber, relative := cur.LineNumberSettings()
-					gutterWidth := 0
-					if showNumber || relative {
-						gutterWidth = viewmanager.GutterWidth(slice.StartRow + len(slice.Lines) - 1)
-					}
-
-					cursorPx := &cursorPixel{}
-					layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							return layout.Flex{
-								Axis:      layout.Vertical,
-								Alignment: layout.Start,
-							}.Layout(gtx,
-								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-									return renderBody(gtx, g.theme, slice, spans, diagnostics, substitutePreview, cursor, showNumber, relative, gutterWidth, cursorPx)
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return renderCompletionPopup(gtx, g.theme, cursor)
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return renderRegisterOverlay(gtx, g.theme, cursor)
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return renderStatusBar(gtx, g.theme, g.ws, cursor)
-								}),
-							)
-						}),
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							// cursorPx is only ever populated by the first
-							// Expanded child above — layout.Stack lays out its
-							// children in order, synchronously, so by the time
-							// this one runs renderBody has already set it.
-							return renderHoverPopup(gtx, g.theme, cursor, topRow, gutterWidth, cursorPx)
-						}),
-					)
-				}
-
-				clipStack.Pop()
 				e.Frame(gtx.Ops)
 			}
 		}
 	}()
 
 	app.Main()
+}
+
+// frame lays out exactly one frame into gtx and reports whether the editor
+// asked to quit while doing so. Everything a frame does lives here;
+// Run keeps only what genuinely needs the window — creating the context
+// and submitting the finished ops.
+//
+// The split exists so a test can drive real frames without a window, the
+// same way tui-base's newApplication lets one drive a real Application
+// without a terminal. A gioui.org/io/input.Router supplies gtx.Source, so
+// injected key events travel the production filter path rather than a test
+// shortcut — which matters here more than most places, because that path
+// is three documented gotchas deep (G4-G6).
+func (g *GioApp) frame(gtx layout.Context) (quitRequested bool) {
+	// Declare the input area over the entire window and paint
+	// the background.
+	clipStack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+	event.Op(gtx.Ops, g.tag)
+
+	// The focus request must come *after* event.Op has
+	// registered the tag in this frame's ops — requesting it
+	// any earlier gets silently dropped, since the tag isn't
+	// yet a valid focus target for this frame.
+	if !gtx.Focused(g.tag) {
+		gtx.Execute(key.FocusCmd{Tag: g.tag})
+	}
+
+	paint.ColorOp{Color: g.theme.Palette.Bg}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+
+	g.handleEvents(gtx)
+
+	cur := g.ws.Current()
+	quitRequested = cur.IsQuitRequested()
+
+	if g.showSplash {
+		// No layout.Stack wrapper needed (unlike the non-splash
+		// branch below, which overlays a hover popup on top of
+		// the body) — one Expanded child with no Stacked sibling
+		// would reset Constraints.Min to {0,0} (layout.Expanded
+		// sizes Min to the largest Stacked sibling, and there is
+		// none here), discarding the root gtx's real Min==Max==
+		// window-size constraints that renderSplash's
+		// layout.Center.Layout needs to actually expand and
+		// center rather than sit at its natural top-left size.
+		renderSplash(gtx, g.theme)
+	} else {
+		cursor := cur.GetCursor()
+		lineHeight := lineHeightPx(gtx, g.theme)
+		// Report the two primitives this frontend actually
+		// knows and let Editor derive the rest (D64): the
+		// vertical space left for text once the single-line
+		// status bar is reserved, and how tall one line is. A
+		// resize changes the first, a font-size change the
+		// second, and neither needs handling here.
+		cur.SetViewportMetrics(gtx.Constraints.Max.Y-lineHeight, lineHeight)
+		slice := cur.Viewport()
+		topRow := cur.ViewportTopRow()
+		spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
+		diagnostics := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
+		substitutePreview := cur.SubstitutePreviewRanges()
+		substitutePreview = append(substitutePreview, cur.VisualSelectionRanges()...)
+
+		showNumber, relative := cur.LineNumberSettings()
+		gutterWidth := 0
+		if showNumber || relative {
+			gutterWidth = viewmanager.GutterWidth(slice.StartRow + len(slice.Lines) - 1)
+		}
+
+		cursorPx := &cursorPixel{}
+		layout.Stack{}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{
+					Axis:      layout.Vertical,
+					Alignment: layout.Start,
+				}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return renderBody(gtx, g.theme, slice, spans, diagnostics, substitutePreview, cursor, showNumber, relative, gutterWidth, cursorPx)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return renderCompletionPopup(gtx, g.theme, cursor)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return renderRegisterOverlay(gtx, g.theme, cursor)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return renderStatusBar(gtx, g.theme, g.ws, cursor)
+					}),
+				)
+			}),
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				// cursorPx is only ever populated by the first
+				// Expanded child above — layout.Stack lays out its
+				// children in order, synchronously, so by the time
+				// this one runs renderBody has already set it.
+				return renderHoverPopup(gtx, g.theme, cursor, topRow, gutterWidth, cursorPx)
+			}),
+		)
+	}
+
+	clipStack.Pop()
+	return quitRequested
 }
 
 // handleEvents drains this frame's key events and forwards each one to

@@ -43,8 +43,7 @@ Ordered. Top item is the one to pick up.
 
 - **T39** — `:h`/`:help` plus a scrollable keybinding overview. First real consumer of rendered markdown outside the preview pane.
 - **T59** — Render hover popups as markdown. A second, already-confirmed caller for `mdrender`: `lspclient.HoverResult` requests server-sent markdown today and discards it.
-- **T60** — Extend the headless e2e harness to the remaining major paths: Visual mode select/yank/paste, `:s///`, workspace buffer switching. One path per pass, so each stays reviewable.
-- **T70** — `gui-base` has no e2e harness, so its half of every shared feature is build-verified only (T33b's viewport work included). The tview harness exists because a `SimulationScreen` does; the Gio equivalent is a real question, not a port. → [`handovers/T33b.md`](handovers/T33b.md)
+- **T60** — Extend the headless e2e harnesses to the remaining major paths: Visual mode select/yank/paste, `:s///`, workspace buffer switching. One path per pass, so each stays reviewable. Both frontends have a harness as of T70, so each path is now two tests, not one. → [`handovers/T70.md`](handovers/T70.md)
 - **T61** — `gui-base` splits parity. `tui-base` has the PoC wired; `gui-base` has none of it. A named parity gap, which D8 calls a bug.
 - **T62** — Splits v1 proper: `<C-w>s`, `<C-w>q`, the real recursive `Pane`/`Node`/`Layout` tree, and `:e` retargeting just the focused pane. The current flat two-slot array is a deliberate PoC, not the shape. → `archive/DESIGN_SPLITS.md`
 - **T32** — Command-mode history. Parked once already alongside dot-repeat: both are "remember a past thing to replay or recall," and the pair deserves one audit before either gets a one-off mechanism.
@@ -96,7 +95,6 @@ Picked up opportunistically or when they actually bite, not proactively.
 - **`:LspUninstall` only removes the index record**, not the install directory.
 - **HTML/CSS/JSON install `vscode-langservers-extracted` three times** instead of deduplicating the shared npm source. Correct, just wasteful.
 - **npm-installed servers' Windows binary path** is a `.cmd`/`.ps1` shim, not directly `exec`-able. Known, documented gap.
-- **No test/lint CI.** `go vet`/`go test` are still run by hand. The *release* pipeline exists; these are independent gaps.
 - **`splitview`, `mdrender` and `splash` have no `docs/packages/` page** — `ARCHITECTURE.md` points there for per-package detail, and for these three there's nothing to point at yet.
 - **`README.md` is stale** — it predates the `piecestore` → `piecetable` rename and the package split. (`CONCEPTUAL_GUIDE.md` was archived rather than fixed.)
 

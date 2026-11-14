@@ -345,3 +345,21 @@ way the other breaks in the same batch already did — the one that used
 happened, the session transcript holds the tool inputs that wrote the file
 and is a genuine recovery path, but reconstruction is not free and is not
 guaranteed to find the *latest* version of an edit made in several passes.
+
+### G37 — A check that reports through a subshell can never fail the build
+**Fires when:** writing any shell gate — a CI step, a lint script, a
+pre-commit hook — that accumulates a failure flag.
+`cmd | while read ...` runs the loop in a *subshell*, so a `fail=1` set
+inside it is discarded when the pipeline ends. The check still prints its
+warning, which is what makes this survive review: the output looks exactly
+like a working check. `docs-check.sh` shipped with four of its seven checks
+like this — it printed `broken link in ROADMAP.md -> handovers/TNNN.md`
+and then `record check: clean`, exit 0, in the same run.
+Use `while read -r l; do ...; done < <(cmd)` — same loop, current shell,
+flag survives.
+The general shape, beyond shell: **a gate is not verified until it has been
+watched to fail.** Same discipline as G22 for tests, and it earns its own
+row because the failure is silent in the opposite direction — G22 catches a
+test that passes against broken code, this catches a *check* that passes
+against broken input. Found by deliberately feeding it a dangling link
+before wiring it into CI, not by it ever going off.

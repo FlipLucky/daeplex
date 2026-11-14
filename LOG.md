@@ -72,4 +72,8 @@ events git already holds (D57).
 2026-11-14  T33b done  — shipped: Editor owns the viewport; <C-v> found unreachable and fixed; D64-D69, G34-G36 minted
 2026-11-14  T69  open  — status line does not distinguish VISUAL BLOCK
 2026-11-14  T70  open  — gui-base has no e2e harness
+2026-11-14  T70  start — headless e2e harness for gui-base
+2026-11-14  T70  done  — shipped: both frontends now drive real frames; 4 tests, 4 negative controls
+2026-11-14  T71  start — test CI
+2026-11-14  T71  done  — shipped: push/PR gate; found docs-check.sh could never fail (G37)
 ```
