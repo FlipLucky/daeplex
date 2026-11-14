@@ -26,18 +26,11 @@ import (
 // autocomplete popup to at most this many visible candidates.
 const maxCompletionRows = 8
 
-// viewportRadius is how many rows above/below the cursor get fetched —
-// generous compared to any real terminal height, tiny compared to a large
-// file, so rendering scales with editing activity near the cursor rather
-// than total file size (replaces the old naive GetText()+strings.Split of
-// the whole document on every keystroke).
-const viewportRadius = 200
-
-// cursorTopPadding is how many rows from the top of the terminal's visible
-// window the cursor is kept — simpler than gui-base's minimal-scroll
-// followCursor (which needs exact on-screen-row knowledge this widget's
-// internal scrolling doesn't expose cheaply), but a real improvement over
-// no auto-follow at all, which is what existed here before.
+// cursorTopPadding is how much context the markdown preview keeps above
+// the line it syncs to. It used to also drive the main pane, which pinned
+// the cursor this far from the top while gui-base scrolled minimally —
+// two answers to one question (G31). Editor owns that decision now (D64)
+// and this is only the preview's margin.
 const cursorTopPadding = 10
 
 // previewScrollOffset turns a preview target line (mdrender.LineMap's
@@ -292,7 +285,14 @@ func renderPane(view *tview.TextView, cur *editor.Editor, pane *splitview.Pane, 
 
 	view.SetTitle(fmt.Sprintf(" %s — %s ", titlePrefix, filePath))
 
-	slice := cur.Viewport(cursor.Row, 1, viewportRadius)
+	// Report this pane's two primitives and let Editor derive the rest
+	// (D64). A terminal cell is one line high, so the division that
+	// absorbs font size and zoom in a GUI is simply height/1 here — the
+	// same arithmetic, no special case.
+	_, _, _, paneHeight := view.GetInnerRect()
+	cur.SetViewportMetrics(paneHeight, 1)
+	slice := cur.Viewport()
+	topRow := cur.ViewportTopRow()
 	spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
 	diagnosticSpans := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
 	substitutePreview := cur.SubstitutePreviewRanges()
@@ -330,14 +330,13 @@ func renderPane(view *tview.TextView, cur *editor.Editor, pane *splitview.Pane, 
 
 	view.SetText(strings.Join(formattedLines, "\n"))
 
-	cursorRow := cursor.Row - slice.StartRow
-	scrollRow := cursorRow - cursorTopPadding
-	if scrollRow < 0 {
-		scrollRow = 0
-	}
-	view.ScrollTo(scrollRow, 0)
+	// The slice starts a margin above topRow, so scroll past that margin to
+	// put topRow itself on the pane's first line. ScrollTo is positioning
+	// within an already-decided window here, not deciding where the window
+	// goes — that's Editor's job now.
+	view.ScrollTo(topRow-slice.StartRow, 0)
 
-	return cursorRow - scrollRow, cursor.Col + gutterWidth, cursor.Mode
+	return cursor.Row - topRow, cursor.Col + gutterWidth, cursor.Mode
 }
 
 // Boot builds the real TUI application and runs it against a real terminal
@@ -523,6 +522,19 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 	// right pane's own GetInnerRect.
 	var cursorScreenRow, cursorScreenCol int
 	var cursorMode types.Mode
+	// lastPaneHeight is what the focused pane measured on the previous
+	// draw. tview's GetInnerRect returns Box's placeholder height until the
+	// first real draw has happened (G11), so the very first render sizes
+	// the viewport from a placeholder and nothing would otherwise correct
+	// it. SetAfterDrawFunc compares against this and asks for one more
+	// render when it changes — through paneResized below, never by calling
+	// renderContent itself (G34).
+	lastPaneHeight := -1
+	// paneResized carries that request to the redraw goroutine, which is
+	// the one place that can trigger a render safely. Buffered-one with a
+	// non-blocking send, the same coalescing idiom as Editor.ChangeChan:
+	// a burst of resizes collapses to "render once more".
+	paneResized := make(chan struct{}, 1)
 	focusedView := editorView
 
 	// Function to rebuild rendering text with cursor block highlight
@@ -708,6 +720,7 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 			select {
 			case <-ws.Current().ChangeChan():
 			case <-ws.Switched():
+			case <-paneResized:
 			}
 			app.QueueUpdateDraw(func() {
 				renderContent()
@@ -749,6 +762,15 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 			keyStr = "<C-n>"
 		case tcell.KeyCtrlP:
 			keyStr = "<C-p>"
+		case tcell.KeyCtrlD:
+			keyStr = "<C-d>"
+		case tcell.KeyCtrlU:
+			keyStr = "<C-u>"
+		case tcell.KeyCtrlV:
+			// Block-visual mode shipped with T54 and was reachable from
+			// neither frontend until this was added — keyengine bound
+			// "<C-v>" the whole time, nothing ever produced the string.
+			keyStr = "<C-v>"
 		default:
 			if event.Rune() != 0 {
 				keyStr = string(event.Rune())
@@ -842,7 +864,19 @@ func newApplication(ws *workspace.Workspace, screen tcell.Screen) *tview.Applica
 	// focusedView are always current — focusedView is editorView2 rather
 	// than editorView whenever a split's second pane has focus.
 	app.SetAfterDrawFunc(func(screen tcell.Screen) {
-		innerX, innerY, _, _ := focusedView.GetInnerRect()
+		innerX, innerY, _, innerHeight := focusedView.GetInnerRect()
+		if innerHeight != lastPaneHeight {
+			lastPaneHeight = innerHeight
+			// Hand the re-render to the redraw goroutine rather than doing
+			// it here. This hook runs inside Application.draw, which holds
+			// the app lock for its whole body, so anything that re-enters
+			// tview deadlocks — see G34. A non-blocking send touches
+			// nothing tview owns.
+			select {
+			case paneResized <- struct{}{}:
+			default:
+			}
+		}
 		style := tcell.CursorStyleSteadyBlock
 		if cursorMode == types.ModeInsert {
 			style = tcell.CursorStyleSteadyBar

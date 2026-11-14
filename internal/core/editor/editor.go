@@ -220,16 +220,6 @@ func (e *Editor) indentStringAtLocked(at int) string {
 	return e.highlighter.IndentStringAt(at)
 }
 
-// Viewport returns just the lines worth rendering for a window into the
-// document — see viewmanager.ViewportSlice. Frontends call this instead of
-// GetText() so rendering stays bounded to the visible lines (+ margin)
-// regardless of document size, without exposing the piece table itself.
-func (e *Editor) Viewport(topRow, visibleRows, margin int) viewmanager.Slice {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	return viewmanager.ViewportSlice(e.table, topRow, visibleRows, margin)
-}
-
 // StyleSpans returns the styling spans overlapping [start, end), for a
 // frontend to render alongside the text from Viewport (typically called
 // with a Slice's StartOffset/EndOffset): real LSP semantic tokens (T48),

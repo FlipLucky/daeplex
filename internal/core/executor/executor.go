@@ -67,6 +67,10 @@ type Editor interface {
 	BeginPendingFindChar(forward bool)
 	// SetVisualAnchor/SetVisualKind are each their own small capability
 	// rather than folded into SetMode — see D35.
+	// SetViewportTop moves the window without moving the cursor —
+	// <C-d>/<C-u> pair it with a move so the cursor keeps its screen
+	// position, and zt/zz/zb will use it alone.
+	SetViewportTop(row int)
 	SetVisualAnchor(offset int)
 	SetVisualKind(kind types.VisualKind)
 	// DeleteRangesWithRegister/YankRanges (T54) are
@@ -97,6 +101,7 @@ type (
 	hasCount     interface{ Count() int }
 	hasRune      interface{ Rune() rune }
 	hasBelow     interface{ Below() bool }
+	hasTopRow    interface{ TopRow() int }
 	hasInsertion interface {
 		Insertion() (text string, caretOffset int)
 	}
@@ -239,6 +244,10 @@ func Dispatch(a Action, ed Editor) {
 	case types.ActionReplaceRune:
 		if p, ok := a.(hasRune); ok {
 			ed.ReplaceRune(p.Rune())
+		}
+	case types.ActionScrollTo:
+		if p, ok := a.(hasTopRow); ok {
+			ed.SetViewportTop(p.TopRow())
 		}
 	case types.ActionEnterInsert:
 		ed.SetMode(types.ModeInsert)

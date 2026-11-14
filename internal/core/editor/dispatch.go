@@ -198,7 +198,8 @@ func (e *Editor) handleNormalModeKey(key string) bool {
 	if cmd.Noun == keyengine.Tag {
 		tag.RangeAt = e.tagRangeAtLocked
 	}
-	actions := interpreter.ProcessNormal(cmd, e.table, pos, clip, bracket, tag)
+	view := interpreter.ViewportContext{Rows: e.viewportRowsLocked(), TopRow: e.cursor.TopRow}
+	actions := interpreter.ProcessNormal(cmd, e.table, pos, clip, bracket, tag, view)
 	e.dispatchLocked(toExecutorActions(actions)...)
 	e.mu.Unlock()
 	return true
@@ -232,7 +233,8 @@ func (e *Editor) handleVisualModeKey(key string) bool {
 	if cmd.Noun == keyengine.Tag {
 		tag.RangeAt = e.tagRangeAtLocked
 	}
-	actions := interpreter.ProcessVisual(cmd, e.table, pos, visual, bracket, tag)
+	view := interpreter.ViewportContext{Rows: e.viewportRowsLocked(), TopRow: e.cursor.TopRow}
+	actions := interpreter.ProcessVisual(cmd, e.table, pos, visual, bracket, tag, view)
 	e.dispatchLocked(toExecutorActions(actions)...)
 	e.mu.Unlock()
 	return true
@@ -395,6 +397,22 @@ func (v lockedEditorView) SetMode(m types.Mode) { v.e.setModeLocked(m) }
 // mode's whole state is these two fields, nothing else, per
 // ResolveVisualRange's doc comment on why the selection is never stored as
 // its own range.
+// SetViewportTop moves the window without moving the cursor. Clamped so
+// the view never starts past the end of the document, and re-followed
+// afterwards so an explicit scroll can never leave the cursor off screen —
+// at the end of a buffer the move clamps to the last line while the
+// requested scroll doesn't, and without this the cursor would vanish.
+func (v lockedEditorView) SetViewportTop(row int) {
+	if row < 0 {
+		row = 0
+	}
+	if last := offset.ByteOffsetToPosition(v.e.table, v.e.table.Len()).Row; row > last {
+		row = last
+	}
+	v.e.cursor.TopRow = row
+	v.e.cursor.followViewport()
+}
+
 func (v lockedEditorView) SetVisualAnchor(offsetVal int) { v.e.cursor.VisualAnchor = offsetVal }
 func (v lockedEditorView) SetVisualKind(kind types.VisualKind) {
 	v.e.cursor.VisualKind = kind

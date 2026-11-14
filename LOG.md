@@ -68,4 +68,8 @@ events git already holds (D57).
 2026-11-08  T64  start — migrate in-code doc references from filenames to IDs
 2026-11-08  T64  done  — shipped: 56 references migrated; D58-D61 and T65/T66/T68 minted
 2026-11-08  T58  done  — shipped: 161KB CLAUDE.md replaced; 7 files archived
+2026-11-08  T33b start — <C-d>/<C-u> half-page scroll
+2026-11-14  T33b done  — shipped: Editor owns the viewport; <C-v> found unreachable and fixed; D64-D69, G34-G36 minted
+2026-11-14  T69  open  — status line does not distinguish VISUAL BLOCK
+2026-11-14  T70  open  — gui-base has no e2e harness
 ```

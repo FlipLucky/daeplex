@@ -25,15 +25,13 @@ stays the cheapest re-entry point.
 
 | ID | What | Handover |
 |---|---|---|
-| **T58** | Restructure project documentation into the relational file set | [`handovers/T58.md`](handovers/T58.md) |
-
-*(nothing else in flight — T64 closed with T58.)*
+*(nothing in flight — T33b closed 2026-11-14; T58/T64 closed 2026-11-08.)*
 
 ## Head — next up
 
 Ordered. Top item is the one to pick up.
 
-- **T33b** — `<C-d>`/`<C-u>` half-page scroll. Found live 2026-10-31. Not a drop-in like T33's other bare keys: real vim moves the cursor with the scroll and needs the current viewport height, which `Editor`/`keyengine` don't carry today. (M)
+- **T69** — Status line should distinguish `-- VISUAL BLOCK --` from `-- VISUAL --`. Only visible since T33b made `<C-v>` reachable; the mode is entered correctly, it just isn't named. (S) → [`handovers/T33b.md`](handovers/T33b.md)
 - **T37** — Bracket/quote text objects: `i(`/`a(`, `i{`/`a{`, `i"`/`a"`. Pure table data plus resolvers on the existing `resolveRange` path — the "simple, not easy" test applied directly. (M)
 - **T33** — Bare line-position and motion-variant keys: `t` `T` `W` `B` `E`. `MotionFindCharForward` already exists, fully implemented and tested, wired into nothing. (M)
 - **T38** — Indent/dedent/reindent operators `>` `<` `=`. Reuses the existing range resolvers; `=` leans on `syntax.IndentAt`. (M)
@@ -46,6 +44,7 @@ Ordered. Top item is the one to pick up.
 - **T39** — `:h`/`:help` plus a scrollable keybinding overview. First real consumer of rendered markdown outside the preview pane.
 - **T59** — Render hover popups as markdown. A second, already-confirmed caller for `mdrender`: `lspclient.HoverResult` requests server-sent markdown today and discards it.
 - **T60** — Extend the headless e2e harness to the remaining major paths: Visual mode select/yank/paste, `:s///`, workspace buffer switching. One path per pass, so each stays reviewable.
+- **T70** — `gui-base` has no e2e harness, so its half of every shared feature is build-verified only (T33b's viewport work included). The tview harness exists because a `SimulationScreen` does; the Gio equivalent is a real question, not a port. → [`handovers/T33b.md`](handovers/T33b.md)
 - **T61** — `gui-base` splits parity. `tui-base` has the PoC wired; `gui-base` has none of it. A named parity gap, which D8 calls a bug.
 - **T62** — Splits v1 proper: `<C-w>s`, `<C-w>q`, the real recursive `Pane`/`Node`/`Layout` tree, and `:e` retargeting just the focused pane. The current flat two-slot array is a deliberate PoC, not the shape. → `archive/DESIGN_SPLITS.md`
 - **T32** — Command-mode history. Parked once already alongside dot-repeat: both are "remember a past thing to replay or recall," and the pair deserves one audit before either gets a one-off mechanism.

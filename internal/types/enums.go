@@ -116,6 +116,13 @@ const (
 	// ":s///... its Action is a sequence of replace operations" and
 	// "LSP-driven edits... could go straight to Executor" — see D58.
 	ActionApplyEdits
+	// ActionScrollTo moves the window without moving the cursor. It is the
+	// counterpart to ActionMove rather than a variant of it: <C-d>/<C-u>
+	// dispatch both together, because a half-page scroll moves the cursor
+	// *and* takes the view with it, so the cursor keeps its screen position
+	// (verified against real vim — plain 11j moves only the cursor and
+	// leaves the window put). zt/zz/zb will dispatch this one alone.
+	ActionScrollTo
 )
 
 // VisualKind distinguishes Visual mode's three selection shapes — a real

@@ -245,3 +245,103 @@ the body before trusting the name — and see
 the *next* row's boundary; `<Enter>` in Insert mode inserts `"\n" + indent`
 because it splits a line's existing content instead. Same indent, opposite
 order, and swapping them looks correct until you test the other caller.
+
+### G30 — Screen-relative vim commands are two families, not one
+**Fires when:** implementing anything positioned relative to the window
+rather than the buffer.
+`H`/`M`/`L` move **the cursor** within a view that stays put. `zt`/`zz`/`zb`
+move **the view** around a cursor that stays put. Verified against real
+nvim with the view pinned at 100–121: `H`→100, `M`→110, `L`→121 with the
+view unchanged; then `zt`/`zz`/`zb` with the cursor on 100 left it on 100
+while the top went 100→90→79.
+They look like one feature and have **opposite information flow** — one
+needs the scroll position as input, the other produces it as output. Decide
+which direction you're building before grouping them.
+`<C-d>`/`<C-u>` are a third case and the cheapest: the cursor moves and the
+view follows, so they need nothing the buffer doesn't already provide.
+
+### G31 — The same decision implemented once per frontend diverges silently
+**Fires when:** you are about to compute something in one frontend that the
+other frontend also has to compute.
+"Where should the window sit, given the cursor" existed **three times** here
+before anyone noticed, with three different answers: `gui-base`'s
+`followCursor` is minimal-scroll (no movement while the cursor is already
+on screen), `tui-base` pins the cursor 10 rows from the top
+unconditionally, and the markdown preview pane was a third. Press `j`
+mid-screen and the two editors behave differently.
+The preview one took four rounds of live bug reports — jumpy, then choppy,
+then wrong-pace — to get right, which is the real cost of this class: not
+the duplication, the independent debugging of each copy. D8 calls the
+divergence a bug; this is how it gets in.
+
+### G32 — Where a value lives today is not an argument about where it belongs
+**Fires when:** answering "should X own this?" during a design discussion.
+"The frontends currently hold `topRow`" is an implementation fact. Used as
+a reason, it silently converts "we'd have to move it" into "it's expensive"
+and kills the better shape before it's examined. The question is which
+component's *job* it is; the current location is evidence of history, not
+of fit.
+Caught live in the T33b design: moving scroll ownership to the orchestrator
+was first costed as "Editor gains scroll authority — a different
+conversation," when it is in fact one accessor on a facade the frontends
+already call a dozen times per render, and it *deletes* the duplication in
+G31 rather than adding coupling.
+
+### G33 — Headless nvim can't verify window-relative commands
+**Fires when:** checking real vim semantics (G19) for anything
+screen-relative.
+`nvim --headless` has no real window, so window-relative counts don't
+behave: `3H` returned the **top** line rather than the third, consistently,
+across several probes. Buffer-relative behaviour (`<C-d>`'s cursor
+movement, column preservation, EOF clamping) verified fine headlessly.
+Verify the window-relative half in a real terminal, or you will record a
+confident wrong answer with a transcript to back it up.
+
+### G34 — tview's draw hooks hold the app lock across your callback
+**Fires when:** doing anything from `SetAfterDrawFunc`/`SetBeforeDrawFunc`
+beyond writing to the `tcell.Screen` you were handed.
+`Application.draw` takes the app mutex and holds it for its whole body,
+hooks included, so any call that re-enters tview deadlocks the process —
+not a race, a hard hang. The chain that caught us was four levels deep and
+invisible at the call site: a re-render → hover popup → `Pages.HidePage` →
+`Pages.Focus` → `Application.SetFocus`, which blocks on the lock `draw`
+already holds. `QueueUpdate` is **not** the escape hatch — it waits on a
+`done` channel the same blocked goroutine would have to drain.
+What works: hand the work to a goroutine that isn't tview's, via a
+buffered channel and a non-blocking send. A redraw goroutine calling
+`QueueUpdateDraw` is already safe, because it is not inside `draw`.
+Same shape as G1's reentrant lock, one layer up: the lock is tview's, not
+ours, so no amount of care in our own locking discipline would have caught
+it — only tracing the call chain out of the hook does.
+
+### G35 — tcell's `GetContents` returns the live buffer, not a copy
+**Fires when:** asserting on a `SimulationScreen` from a test goroutine.
+It takes the screen lock, copies the slice *header* out, unlocks, and
+returns the backing array that `drawCell` keeps writing into — so the lock
+protects nothing the caller does with the result. A real `WARNING: DATA
+RACE` against the Application's draw goroutine, not a theoretical one.
+The per-cell `GetContent` accessor *is* properly locked, which makes it a
+tempting fix and a wrong one: it reads the **back** buffer, which tview
+clears and repopulates during every draw, so it hands back torn half-drawn
+screens. Those read as blank — and a blank screen silently *satisfies* any
+"this text is gone now" assertion, turning a real test green for the wrong
+reason. The failure mode is worse than the race.
+What works: take the snapshot inside `app.QueueUpdate`, so the read runs
+on the same goroutine as the draw and the front buffer is both race-free
+and whole. Note this is the exact inverse of G34 — `QueueUpdate` is the
+answer *outside* a draw hook and a deadlock *inside* one.
+
+### G36 — `git checkout <file>` is not an undo for a deliberate break
+**Fires when:** reverting the code you just broke on purpose to prove a
+test fails (the G22 discipline).
+`git checkout` restores from HEAD, which discards *everything* uncommitted
+in that file — not just the two lines you broke. Cost here: a file holding
+two brand-new tests plus an unrelated fix, all written that session,
+destroyed by the cleanup step of verifying one of them. The file was
+tracked, so nothing warned; it was simply gone.
+Copy the file to a scratch path before breaking it and copy it back, the
+way the other breaks in the same batch already did — the one that used
+`git checkout` was the only one that lost anything. If it has already
+happened, the session transcript holds the tool inputs that wrote the file
+and is a genuine recovery path, but reconstruction is not free and is not
+guaranteed to find the *latest* version of an edit made in several passes.

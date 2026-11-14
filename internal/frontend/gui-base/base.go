@@ -26,10 +26,6 @@ import (
 	"github.com/fliplucky/daeplex/internal/types"
 )
 
-// viewportMargin is how many extra lines above/below the visible window get
-// fetched, so a fast scroll doesn't have to wait on a fresh Viewport call.
-const viewportMargin = 10
-
 // maxCompletionRows caps how many :e/:w completion candidates the popup
 // shows at once — see completionWindow.
 const maxCompletionRows = 8
@@ -42,10 +38,6 @@ type GioApp struct {
 	ws    *workspace.Workspace
 	theme *material.Theme
 	tag   *int
-	// topRow is the first document row currently rendered — scroll state
-	// lives here (per-window), not on Editor, same reasoning as
-	// viewmanager owning view state generally.
-	topRow int
 	// showSplash is true only when this session started on a fresh, empty
 	// buffer with no file path (see CreateApp) — cleared by the first key
 	// event handleEvents sees, regardless of what that key turns out to do
@@ -141,9 +133,15 @@ func (g *GioApp) Run() {
 				} else {
 					cursor := cur.GetCursor()
 					lineHeight := lineHeightPx(gtx, g.theme)
-					visibleRows := visibleRowCount(gtx, lineHeight)
-					g.topRow = followCursor(g.topRow, cursor.Row, visibleRows)
-					slice := cur.Viewport(g.topRow, visibleRows, viewportMargin)
+					// Report the two primitives this frontend actually
+					// knows and let Editor derive the rest (D64): the
+					// vertical space left for text once the single-line
+					// status bar is reserved, and how tall one line is. A
+					// resize changes the first, a font-size change the
+					// second, and neither needs handling here.
+					cur.SetViewportMetrics(gtx.Constraints.Max.Y-lineHeight, lineHeight)
+					slice := cur.Viewport()
+					topRow := cur.ViewportTopRow()
 					spans := cur.StyleSpans(slice.StartOffset, slice.EndOffset)
 					diagnostics := cur.DiagnosticSpans(slice.StartOffset, slice.EndOffset)
 					substitutePreview := cur.SubstitutePreviewRanges()
@@ -181,7 +179,7 @@ func (g *GioApp) Run() {
 							// Expanded child above — layout.Stack lays out its
 							// children in order, synchronously, so by the time
 							// this one runs renderBody has already set it.
-							return renderHoverPopup(gtx, g.theme, cursor, g.topRow, gutterWidth, cursorPx)
+							return renderHoverPopup(gtx, g.theme, cursor, topRow, gutterWidth, cursorPx)
 						}),
 					)
 				}
@@ -290,6 +288,15 @@ func translateKeyEvent(e key.Event) (string, bool) {
 			return "<C-n>", true
 		case "P":
 			return "<C-p>", true
+		case "D":
+			return "<C-d>", true
+		case "U":
+			return "<C-u>", true
+		case "V":
+			// Block-visual mode shipped with T54 and was reachable from
+			// neither frontend until this was added — keyengine bound
+			// "<C-v>" the whole time, nothing ever produced the string.
+			return "<C-v>", true
 		}
 	}
 	return "", false
@@ -304,29 +311,6 @@ func lineHeightPx(gtx layout.Context, theme *material.Theme) int {
 		h = 1
 	}
 	return h
-}
-
-// visibleRowCount is how many text rows fit above the (single-line) status
-// bar, given the current window height.
-func visibleRowCount(gtx layout.Context, lineHeight int) int {
-	available := gtx.Constraints.Max.Y - lineHeight
-	rows := available / lineHeight
-	if rows < 1 {
-		rows = 1
-	}
-	return rows
-}
-
-// followCursor keeps the cursor's row within the visible window, scrolling
-// only the minimum amount necessary rather than re-centering every frame.
-func followCursor(topRow, cursorRow, visibleRows int) int {
-	if cursorRow < topRow {
-		return cursorRow
-	}
-	if cursorRow >= topRow+visibleRows {
-		return cursorRow - visibleRows + 1
-	}
-	return topRow
 }
 
 // renderBody lays out exactly the lines in slice — never the whole

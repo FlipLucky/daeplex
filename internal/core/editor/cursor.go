@@ -164,6 +164,14 @@ type Cursor struct {
 	// interpreter.ResolveVisualRange and Editor.VisualSelectionRanges.
 	VisualAnchor int
 	VisualKind   types.VisualKind
+	// TopRow/Rows are this view's scroll state (D64): which document row
+	// sits at the top of the window, and how many text rows the window can
+	// show. They live on Cursor rather than Editor because they are
+	// per-*view*, not per-buffer — splits give each pane its own Cursor and
+	// hot-swap which one Editor operates on (see UseCursor), so scroll
+	// position follows that same swap for free, with no second mechanism.
+	TopRow int
+	Rows   int
 }
 
 func NewCursor() *Cursor {
@@ -179,6 +187,34 @@ func (c *Cursor) Update(byteOffset, row, col int) {
 	c.ByteOffset = byteOffset
 	c.Row = row
 	c.Col = col
+	c.followViewport()
+}
+
+// followViewport scrolls this view the minimum amount needed to bring the
+// cursor back on screen — real vim's own default. It lives on Cursor
+// rather than Editor because every value it reads and writes is Cursor's
+// own (same reasoning as SetMode's cleanup, T4), and because it has to run
+// on *every* position change: scroll that only caught up at render time
+// would make TopRow stale for anything asking between keystrokes.
+//
+// This is now the single implementation of a decision each frontend used
+// to make for itself, and differently — gui-base scrolled minimally while
+// tui-base pinned the cursor ten rows from the top, so the same keystroke
+// moved the window in one and not the other (G31).
+func (c *Cursor) followViewport() {
+	rows := c.Rows
+	if rows < 1 {
+		rows = 1
+	}
+	switch {
+	case c.Row < c.TopRow:
+		c.TopRow = c.Row
+	case c.Row >= c.TopRow+rows:
+		c.TopRow = c.Row - rows + 1
+	}
+	if c.TopRow < 0 {
+		c.TopRow = 0
+	}
 }
 
 // SetMode transitions the cursor's mode, clearing whichever of its own

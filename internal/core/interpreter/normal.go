@@ -82,6 +82,46 @@ type TagContext struct {
 	RangeAt func(at int) (inner, around offset.TextRange, ok bool)
 }
 
+// ViewportContext is a read-only snapshot of the active view's geometry —
+// same snapshot pattern as BracketContext/TagContext: Processor never
+// reaches into Editor or a frontend, Editor reads its own state once under
+// the lock it already holds and passes the values in.
+//
+// Rows is how many text rows the view can show. It is derived, not
+// reported: a frontend divides the vertical space it has by its own line
+// height (D64), which is why a resize, a font change and a zoom all arrive
+// here as a different Rows and need no handling of their own.
+//
+// TopRow is carried even though <C-d>/<C-u> never read it (D65). H/M/L
+// resolve a cursor position *from* the view rather than from the buffer,
+// so having it here already is what keeps those a table entry later
+// instead of a plumbing change. See GOTCHAS G30 for why zt/zz/zb are not
+// in this group — they move the view rather than reading it.
+type ViewportContext struct {
+	Rows   int
+	TopRow int
+}
+
+// HalfPage is how far <C-d>/<C-u> move: half the visible rows, floored at
+// one so a pathologically short window still moves rather than sticking.
+func (v ViewportContext) HalfPage() int {
+	if half := v.Rows / 2; half > 0 {
+		return half
+	}
+	return 1
+}
+
+// ScrollToAction moves the window to start at TopRow, leaving the cursor
+// alone. Absolute rather than a delta because that is the shape every
+// caller wants: <C-d> computes "where the view is now, plus a half page",
+// and zt/zz/zb will each compute a row from the cursor's own position.
+type ScrollToAction struct {
+	Row int
+}
+
+func (a ScrollToAction) Kind() types.ActionKind { return types.ActionScrollTo }
+func (a ScrollToAction) TopRow() int            { return a.Row }
+
 // VisualContext is a read-only snapshot of Visual mode's current selection
 // state (anchor byte offset + kind) — same snapshot pattern as
 // PasteClipboard/BracketContext. ProcessVisual never touches *editor.Cursor
@@ -292,7 +332,7 @@ func ResolveFindChar(doc offset.Document, at Position, target rune, forward bool
 // Returns nil only for a Verb this function doesn't know about,
 // which shouldn't happen for anything keyengine's own whitelist tables
 // actually produce.
-func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, clip PasteClipboard, bracket BracketContext, tag TagContext) []Action {
+func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, clip PasteClipboard, bracket BracketContext, tag TagContext, view ViewportContext) []Action {
 	count := cmd.Count
 	if count < 1 {
 		count = 1
@@ -300,7 +340,15 @@ func ProcessNormal(cmd *keyengine.ExecutableCommand, doc offset.Document, at Pos
 
 	switch cmd.Verb {
 	case keyengine.Move:
-		return one(resolveMove(doc, cmd.Noun, at, count, cmd.HasCount, bracket))
+		// <C-d>/<C-u> are the one Move that also scrolls, so they resolve
+		// to a pair rather than a single MoveAction — see resolveHalfPage.
+		switch cmd.Noun {
+		case keyengine.HalfPageDown:
+			return resolveHalfPage(doc, at, count, view, 1)
+		case keyengine.HalfPageUp:
+			return resolveHalfPage(doc, at, count, view, -1)
+		}
+		return one(resolveMove(doc, cmd.Noun, at, count, cmd.HasCount, bracket, view))
 	case keyengine.Delete:
 		rng, ok := resolveRange(doc, cmd.Modifier, cmd.Noun, at.ByteOffset, count, tag)
 		linewise := cmd.Noun == keyengine.LineMotion
@@ -468,7 +516,7 @@ func one(a Action) []Action { return []Action{a} }
 // but via EnterInsertAction's own mode switch, whose generic "leaving
 // Visual" cleanup (Cursor.SetMode) already clears the anchor/kind as a
 // side effect — no explicit ExitVisualAction needed there.
-func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, visual VisualContext, bracket BracketContext, tag TagContext) []Action {
+func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Position, visual VisualContext, bracket BracketContext, tag TagContext, view ViewportContext) []Action {
 	count := cmd.Count
 	if count < 1 {
 		count = 1
@@ -476,7 +524,15 @@ func ProcessVisual(cmd *keyengine.ExecutableCommand, doc offset.Document, at Pos
 
 	switch cmd.Verb {
 	case keyengine.Move:
-		return one(resolveMove(doc, cmd.Noun, at, count, cmd.HasCount, bracket))
+		// <C-d>/<C-u> are the one Move that also scrolls, so they resolve
+		// to a pair rather than a single MoveAction — see resolveHalfPage.
+		switch cmd.Noun {
+		case keyengine.HalfPageDown:
+			return resolveHalfPage(doc, at, count, view, 1)
+		case keyengine.HalfPageUp:
+			return resolveHalfPage(doc, at, count, view, -1)
+		}
+		return one(resolveMove(doc, cmd.Noun, at, count, cmd.HasCount, bracket, view))
 	case keyengine.VisualSwapEnds:
 		// o: swap which end is the anchor and which is the live cursor —
 		// resolves to the exact same MoveAction/SetVisualAnchorAction
@@ -755,12 +811,28 @@ func resolveBlockPaste(doc offset.Document, at Position, values []string, before
 // resolveMotion accumulation loop entirely, mirroring how
 // executeMove/moveCursorUpLocked/moveCursorDownLocked used to split this
 // same way inside internal/editor.
-func resolveMove(doc offset.Document, noun keyengine.KeyActionName, at Position, count int, hasCount bool, bracket BracketContext) MoveAction {
+// resolveHalfPage is <C-d>/<C-u>: move the cursor a half page, and take the
+// window with it so the cursor keeps its position on screen. That second
+// half is what separates these from a plain motion — real vim's 11j moves
+// the cursor and leaves the window alone, while <C-d> scrolls both.
+//
+// A count multiplies the half-page (D66): 5<C-d> is five half-pages, the
+// same way 5j is five lines. Real vim instead redefines the half-page to
+// the count and makes that redefinition stick for later bare presses,
+// which breaks its own count convention.
+func resolveHalfPage(doc offset.Document, at Position, count int, view ViewportContext, dir int) []Action {
+	distance := count * view.HalfPage()
+	move := resolveLineStep(doc, at, distance, dir)
+	return []Action{move, ScrollToAction{Row: view.TopRow + distance*dir}}
+}
+
+func resolveMove(doc offset.Document, noun keyengine.KeyActionName, at Position, count int, hasCount bool, bracket BracketContext, view ViewportContext) MoveAction {
 	switch noun {
 	case keyengine.LineUp:
 		return resolveLineStep(doc, at, count, -1)
 	case keyengine.LineDown:
 		return resolveLineStep(doc, at, count, 1)
+
 	case keyengine.BracketMatch:
 		// No count semantics beyond "do it once" — real vim's `N%` is a
 		// different feature (jump to N percent of the file), a deliberate

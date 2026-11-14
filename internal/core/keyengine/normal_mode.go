@@ -103,6 +103,8 @@ func CreateNormalModeDirects() map[string]DirectAction {
 		"v":       {Verb: EnterVisualChar},
 		"V":       {Verb: EnterVisualLine},
 		"<C-v>":   {Verb: EnterVisualBlock},
+		"<C-d>":   {Verb: Move, Noun: HalfPageDown},
+		"<C-u>":   {Verb: Move, Noun: HalfPageUp},
 
 		// The "fill out Normal mode" pass (archive/ATOMIC_TASKS.md's T55
 		// has the full history); grouped here by what each reuses:

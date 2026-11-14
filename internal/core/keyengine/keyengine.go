@@ -80,6 +80,16 @@ const (
 	CharForward
 	LineUp
 	LineDown
+	// HalfPageDown/HalfPageUp (<C-d>/<C-u>) are LineUp/LineDown with a
+	// count the buffer can't supply — half the visible rows, which only the
+	// view knows (D64). They reach resolveMove through ViewportContext and
+	// then reuse resolveLineStep unchanged, so they preserve the cursor's
+	// column and clamp at the buffer ends exactly like j/k already do.
+	//
+	// Direct-only, deliberately: real vim has no d<C-d> operator form, so
+	// unlike LineUp/LineDown these are never registered as Nouns.
+	HalfPageDown
+	HalfPageUp
 
 	// BracketMatch is `%` (T44) — jump to the bracket matching the one
 	// under the cursor. Deliberately scoped to that one real vim behavior

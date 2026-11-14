@@ -94,6 +94,8 @@ func CreateVisualModeDirects() map[string]DirectAction {
 		"v":     {Verb: EnterVisualChar},
 		"V":     {Verb: EnterVisualLine},
 		"<C-v>": {Verb: EnterVisualBlock},
+		"<C-d>": {Verb: Move, Noun: HalfPageDown},
+		"<C-u>": {Verb: Move, Noun: HalfPageUp},
 		"<Esc>": {Verb: ExitVisual},
 	}
 }

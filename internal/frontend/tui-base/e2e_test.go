@@ -37,7 +37,7 @@ import (
 // terminal, just with newApplication's screen parameter populated instead
 // of left nil. t.Cleanup stops it and waits for Run() to actually return,
 // so one test's app can never bleed into the next.
-func newTestApp(t *testing.T, ws *workspace.Workspace) (*tview.Application, tcell.SimulationScreen) {
+func newTestApp(t *testing.T, ws *workspace.Workspace) (*tview.Application, *testScreen) {
 	t.Helper()
 	screen := tcell.NewSimulationScreen("UTF-8")
 	app := newApplication(ws, screen) // SetScreen inside calls screen.Init()
@@ -53,28 +53,77 @@ func newTestApp(t *testing.T, ws *workspace.Workspace) (*tview.Application, tcel
 			t.Error("Application.Run() did not return within 5s of Stop()")
 		}
 	})
-	return app, screen
+	return app, &testScreen{SimulationScreen: screen, app: app}
+}
+
+// testScreen pairs the simulation screen with the Application driving it.
+// Reading the screen is not a passive act here: the front buffer is
+// written by the Application's draw goroutine, so a snapshot has to be
+// taken *on* that goroutine rather than alongside it (see snapshot).
+// Embedding SimulationScreen keeps InjectKey and friends reachable
+// unchanged at the call sites.
+type testScreen struct {
+	tcell.SimulationScreen
+	app *tview.Application
+}
+
+// snapshot runs read on the Application's own goroutine, via QueueUpdate,
+// and returns what it produced.
+//
+// This is not defensive tidiness — reading the screen directly from the
+// test goroutine is a real data race, confirmed under -race (see G35).
+// tcell's bulk GetContents accessor looks synchronised and isn't: it holds
+// the lock just long enough to copy the slice *header* out, then returns
+// the live backing array that drawCell keeps writing into. There is no
+// public lock to borrow, and the per-cell GetContent accessor is no escape
+// either — it reads the *back* buffer, which tview clears and repopulates
+// mid-draw, so it hands back torn, half-drawn screens (which read as blank
+// and silently satisfy a "this text is gone now" assertion). Running on
+// the draw goroutine itself is what makes the front buffer both race-free
+// and whole.
+//
+// QueueUpdate blocks until the main loop picks the function up, so the
+// call is parked on its own goroutine and bounded — a stopped Application
+// fails the test rather than hanging it for the full package timeout.
+func (s *testScreen) snapshot(t *testing.T, read func(tcell.SimulationScreen) string) string {
+	t.Helper()
+	out := make(chan string, 1)
+	go func() {
+		s.app.QueueUpdate(func() { out <- read(s.SimulationScreen) })
+	}()
+	select {
+	case v := <-out:
+		return v
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the Application goroutine to take a screen snapshot")
+		return ""
+	}
 }
 
 // screenText flattens the simulation screen's current cell grid into a
 // plain string, one line per row — rendered exactly as a real terminal
 // would show it, borders/status bar included, so assertions can just
 // substring-match what a person would actually see.
-func screenText(screen tcell.SimulationScreen) string {
-	cells, w, h := screen.GetContents()
-	var b strings.Builder
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			c := cells[y*w+x]
-			if len(c.Runes) > 0 {
-				b.WriteRune(c.Runes[0])
-			} else {
-				b.WriteRune(' ')
+// The read is taken on the Application's goroutine; see
+// testScreen.snapshot for why that is mandatory rather than careful.
+func screenText(t *testing.T, screen *testScreen) string {
+	t.Helper()
+	return screen.snapshot(t, func(sim tcell.SimulationScreen) string {
+		cells, w, h := sim.GetContents()
+		var b strings.Builder
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				c := cells[y*w+x]
+				if len(c.Runes) > 0 {
+					b.WriteRune(c.Runes[0])
+				} else {
+					b.WriteRune(' ')
+				}
 			}
+			b.WriteByte('\n')
 		}
-		b.WriteByte('\n')
-	}
-	return b.String()
+		return b.String()
+	})
 }
 
 // waitForScreen polls screenText until cond matches or timeout elapses —
@@ -82,12 +131,12 @@ func screenText(screen tcell.SimulationScreen) string {
 // the redraw-trigger goroutine, SetInputCapture's own direct renderContent
 // calls), never synchronously with key injection, so a test can't just
 // inject a key and immediately assert.
-func waitForScreen(t *testing.T, screen tcell.SimulationScreen, timeout time.Duration, cond func(text string) bool) string {
+func waitForScreen(t *testing.T, screen *testScreen, timeout time.Duration, cond func(text string) bool) string {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	var last string
 	for time.Now().Before(deadline) {
-		last = screenText(screen)
+		last = screenText(t, screen)
 		if cond(last) {
 			return last
 		}
@@ -97,7 +146,7 @@ func waitForScreen(t *testing.T, screen tcell.SimulationScreen, timeout time.Dur
 	return last
 }
 
-func waitForScreenContains(t *testing.T, screen tcell.SimulationScreen, substr string, timeout time.Duration) string {
+func waitForScreenContains(t *testing.T, screen *testScreen, substr string, timeout time.Duration) string {
 	t.Helper()
 	return waitForScreen(t, screen, timeout, func(text string) bool {
 		return strings.Contains(text, substr)
@@ -108,24 +157,27 @@ func waitForScreenContains(t *testing.T, screen tcell.SimulationScreen, substr s
 // isolate one pane's content specifically (e.g. the right-hand preview
 // pane) when a simple whole-screen Contains check can't tell which pane a
 // match came from.
-func screenColumnText(screen tcell.SimulationScreen, x0, x1 int) string {
-	cells, w, h := screen.GetContents()
-	if x1 > w {
-		x1 = w
-	}
-	var b strings.Builder
-	for y := 0; y < h; y++ {
-		for x := x0; x < x1; x++ {
-			c := cells[y*w+x]
-			if len(c.Runes) > 0 {
-				b.WriteRune(c.Runes[0])
-			} else {
-				b.WriteRune(' ')
-			}
+func screenColumnText(t *testing.T, screen *testScreen, x0, x1 int) string {
+	t.Helper()
+	return screen.snapshot(t, func(sim tcell.SimulationScreen) string {
+		cells, w, h := sim.GetContents()
+		if x1 > w {
+			x1 = w
 		}
-		b.WriteByte('\n')
-	}
-	return b.String()
+		var b strings.Builder
+		for y := 0; y < h; y++ {
+			for x := x0; x < x1; x++ {
+				c := cells[y*w+x]
+				if len(c.Runes) > 0 {
+					b.WriteRune(c.Runes[0])
+				} else {
+					b.WriteRune(' ')
+				}
+			}
+			b.WriteByte('\n')
+		}
+		return b.String()
+	})
 }
 
 // typeRunes injects a sequence of plain character keystrokes, one at a
@@ -217,7 +269,7 @@ func TestE2EMarkdownPreviewScrollSyncTracksCursor(t *testing.T) {
 	typeRunes(screen, ":MdPreview")
 	screen.InjectKey(tcell.KeyEnter, 0, tcell.ModNone)
 	waitForScreen(t, screen, 2*time.Second, func(text string) bool {
-		return strings.Contains(screenColumnText(screen, 50, 100), "Section 1")
+		return strings.Contains(screenColumnText(t, screen, 50, 100), "Section 1")
 	})
 
 	// Jump far down (line 100 of the source, ~section 25) — the preview's
@@ -225,7 +277,99 @@ func TestE2EMarkdownPreviewScrollSyncTracksCursor(t *testing.T) {
 	// independently-correct windowed scroll.
 	typeRunes(screen, "100G")
 	waitForScreen(t, screen, 2*time.Second, func(text string) bool {
-		right := screenColumnText(screen, 50, 100)
+		right := screenColumnText(t, screen, 50, 100)
 		return !strings.Contains(right, "Section 1 ") && strings.Contains(right, "Section 2")
 	})
+}
+
+// TestE2EHalfPageScrollMovesCursorAndWindow drives <C-d>/<C-u> through the
+// real rendering pipeline — key translation, keyengine, the interpreter's
+// ViewportContext, and the actual screen the frontend paints.
+//
+// This is the path a unit test structurally cannot reach: the half-page
+// size is derived from the pane's real measured height (D64), so a test
+// that stubs the metrics proves nothing about whether the frontend reports
+// them at all. Here the number comes from a real tview layout on a real
+// (simulated) 100x40 terminal.
+func TestE2EHalfPageScrollMovesCursorAndWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "numbered.txt")
+
+	var b strings.Builder
+	for i := 1; i <= 300; i++ {
+		fmt.Fprintf(&b, "line-%03d\n", i)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ed, err := editor.NewEditorFromFile(path)
+	if err != nil {
+		t.Fatalf("NewEditorFromFile: %v", err)
+	}
+	_, screen := newTestApp(t, workspace.New(ed))
+
+	// The top of the file is on screen to start with.
+	waitForScreenContains(t, screen, "line-001", 2*time.Second)
+	if strings.Contains(screenText(t, screen), "line-200") {
+		t.Fatal("line-200 visible before any scrolling")
+	}
+
+	// One <C-d> moves the cursor down half a window and the window with it.
+	screen.InjectKey(tcell.KeyCtrlD, 0, tcell.ModNone)
+	waitForScreen(t, screen, 2*time.Second, func(text string) bool {
+		return !strings.Contains(text, "line-001")
+	})
+	afterOne := ed.GetCursor().Row
+	if afterOne < 5 || afterOne > 60 {
+		t.Fatalf("cursor row %d after <C-d> is not a plausible half-page on a 40-row screen", afterOne)
+	}
+
+	// A second <C-d> moves by the same amount — the count-free case stays
+	// constant, which is what makes D66's "the count is spent" claim
+	// observable end to end.
+	screen.InjectKey(tcell.KeyCtrlD, 0, tcell.ModNone)
+	waitForScreen(t, screen, 2*time.Second, func(text string) bool {
+		return ed.GetCursor().Row == afterOne*2
+	})
+
+	// <C-u> walks it back.
+	screen.InjectKey(tcell.KeyCtrlU, 0, tcell.ModNone)
+	waitForScreen(t, screen, 2*time.Second, func(text string) bool {
+		return ed.GetCursor().Row == afterOne
+	})
+	if got := ed.GetCursor().Row; got != afterOne {
+		t.Errorf("cursor row = %d after <C-u>, want %d", got, afterOne)
+	}
+
+	// And the rendered screen really follows the cursor, rather than the
+	// cursor moving behind a stationary window.
+	text := screenText(t, screen)
+	wantLine := fmt.Sprintf("line-%03d", afterOne+1)
+	if !strings.Contains(text, wantLine) {
+		t.Errorf("screen does not show %s after <C-u>; rendered:\n%s", wantLine, text)
+	}
+}
+
+// TestE2EBlockVisualIsReachable guards the gap this task found: <C-v> was
+// bound in keyengine from the day block-visual shipped (T54), but neither
+// frontend ever translated the key, so the mode was unreachable in the
+// actual application while every unit test passed.
+func TestE2EBlockVisualIsReachable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "block.txt")
+	if err := os.WriteFile(path, []byte("abcd\nefgh\nijkl\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	// Opened from a file rather than NewEditor: a pathless empty-ish
+	// buffer shows the splash screen until the first keystroke, which
+	// would mask what this test is asserting on.
+	ed, err := editor.NewEditorFromFile(path)
+	if err != nil {
+		t.Fatalf("NewEditorFromFile: %v", err)
+	}
+	_, screen := newTestApp(t, workspace.New(ed))
+	waitForScreenContains(t, screen, "abcd", 2*time.Second)
+
+	screen.InjectKey(tcell.KeyCtrlV, 0, tcell.ModNone)
+	waitForScreenContains(t, screen, "VISUAL", 2*time.Second)
 }
